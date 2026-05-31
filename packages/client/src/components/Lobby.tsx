@@ -27,11 +27,11 @@ interface LobbyProps {
 
 export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyProps) {
   const [roomId, setRoomId] = useState("");
-  const [aiModel, setAiModel] = useState<AiModelId>("local");
+  const [aiModel, setAiModel] = useState<AiModelId>("deepseek-v4-flash");
   const [colorChoice, setColorChoice] = useState<ColorChoice>("random");
-  const [analyze, setAnalyze] = useState(false);
-  const [dualModelBlack, setDualModelBlack] = useState<AiModelId>("local");
-  const [dualModelWhite, setDualModelWhite] = useState<AiModelId>("local");
+  const [analyze, setAnalyze] = useState(true);
+  const [dualModelBlack, setDualModelBlack] = useState<AiModelId>("glm-5.1");
+  const [dualModelWhite, setDualModelWhite] = useState<AiModelId>("glm-5.1");
   const { status, error } = useWebSocketState();
   const { theme } = useViewState();
   const { toggleTheme } = useViewActions();
@@ -68,9 +68,9 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
           Connect6 · 3D 棋盘博弈
         </p>
 
-        <div className="space-y-4">
+        <div className="space-y-0">
           {/* ── 1. Single player ── */}
-          <div className="space-y-2">
+          <div className="space-y-2 py-3">
             <div className="flex gap-2">
               <div className="flex-1">
                 <label className={`${textSecondary} text-[10px] font-mono block mb-1`}>AI 模型</label>
@@ -111,8 +111,10 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
             </button>
           </div>
 
+          <div className={`border-t ${borderColor}`} />
+
           {/* ── 2. Training ── */}
-          <div className="space-y-2">
+          <div className="space-y-2 py-3">
             <div className="flex items-center justify-between">
               <span className={`${textSecondary} text-[10px] font-mono`}>训练模式</span>
               <label className="flex items-center gap-1 cursor-pointer">
@@ -150,8 +152,10 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
             </button>
           </div>
 
+          <div className={`border-t ${borderColor}`} />
+
           {/* ── 3. Dual AI ── */}
-          <div className="space-y-2">
+          <div className="space-y-2 py-3">
             <span className={`${textSecondary} text-[10px] font-mono`}>AI 对抗</span>
             <div className="flex gap-2">
               <div className="flex-1">
@@ -193,8 +197,10 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
             </button>
           </div>
 
+          <div className={`border-t ${borderColor}`} />
+
           {/* ── 4. Multiplayer ── */}
-          <div>
+          <div className="py-3">
             <label className={`${textSecondary} text-xs font-mono block mb-1`}>
               房间名称
             </label>
