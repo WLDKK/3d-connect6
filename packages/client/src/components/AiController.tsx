@@ -11,7 +11,7 @@ interface AiControllerProps {
   onThinking?: (thinking: boolean) => void;
 }
 
-const AI_API_TIMEOUT = 25000; // LLM can take 15-20s
+const AI_API_TIMEOUT = 180000; // 3 minutes
 const API_BASE = import.meta.env.VITE_API_URL || (location.hostname.includes("pages.dev")
   ? "https://connect6-server.1310205058.workers.dev"
   : "");

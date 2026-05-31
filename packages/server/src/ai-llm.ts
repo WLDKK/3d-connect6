@@ -13,7 +13,7 @@ import {
 
 /** API key — read from env (wrangler secret) or fallback for local dev */
 let LLM_API_KEY = "ak-a441b4719add46ae930f0246782c22d0";
-const LLM_TIMEOUT_MS = 10000;
+const LLM_TIMEOUT_MS = 180000; // 3 minutes
 
 /** Inject API key from Worker env (call once at startup) */
 export function setAiApiKey(key: string) {
