@@ -61,6 +61,16 @@ async function handleAiRequest(request: Request): Promise<Response> {
     return Response.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  const start = Date.now();
   const result = await computeAiMoveWithLLM(payload);
-  return Response.json(result);
+  const elapsed = Date.now() - start;
+
+  return Response.json({
+    ...result,
+    _debug: {
+      model: payload.model ?? "local",
+      elapsed: `${elapsed}ms`,
+      moveCount: result.moves.length,
+    },
+  });
 }

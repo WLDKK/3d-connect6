@@ -178,11 +178,15 @@ async function callLLM(req: AiRequestPayload): Promise<{ x: number; y: number; z
   if (modelId === "local") return null;
 
   const cfg = MODEL_ENDPOINTS[modelId];
-  if (!cfg) return null;
+  if (!cfg) {
+    console.log(`[AI] Unknown model: ${modelId}`);
+    return null;
+  }
 
   const { system, user } = buildPrompts(req);
 
   try {
+    console.log(`[AI] Calling ${modelId} (${cfg.protocol})...`);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
@@ -191,11 +195,16 @@ async function callLLM(req: AiRequestPayload): Promise<{ x: number; y: number; z
       : await callAnthropic(cfg, system, user);
 
     clearTimeout(timer);
+    console.log(`[AI] LLM response: ${text?.slice(0, 100)}`);
+
     if (!text) return null;
 
     const parsed = parseMovesFromText(text, req.stonesToPlace);
-    return validateMoves(parsed, req.board, req.config.sizeX, req.config.sizeY, req.config.sizeZ);
-  } catch {
+    const validated = validateMoves(parsed, req.board, req.config.sizeX, req.config.sizeY, req.config.sizeZ);
+    console.log(`[AI] Parsed ${parsed.length} moves, validated ${validated.length}`);
+    return validated;
+  } catch (e) {
+    console.log(`[AI] Error: ${e}`);
     return null;
   }
 }

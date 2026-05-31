@@ -30,7 +30,7 @@ const AI_MODEL_LABELS: Record<AiModelId, string> = {
   "glm-5.1": "GLM 5.1",
 };
 
-function HUD({ mode, aiModel, aiSource }: { mode: "local" | "online"; aiModel: AiModelId; aiSource: "llm" | "local" | null }) {
+function HUD({ mode, aiModel, aiSource, aiThinking }: { mode: "local" | "online"; aiModel: AiModelId; aiSource: "llm" | "local" | null; aiThinking: boolean }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
 
@@ -61,7 +61,7 @@ function HUD({ mode, aiModel, aiSource }: { mode: "local" | "online"; aiModel: A
         <div>
           <p className="text-xs opacity-60">第 {snapshot.round} 回合</p>
           <p className={`text-sm font-bold ${isBlack ? "text-gray-300" : "text-white"}`}>
-            {playerName}落子
+            {aiThinking ? "AI 思考中..." : `${playerName}落子`}
             {snapshot.round > 0 && `（本回合剩余 ${2 - snapshot.stonesPlacedThisTurn} 枚）`}
           </p>
         </div>
@@ -208,11 +208,12 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
 function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiColor: Player | null; aiModel: AiModelId }) {
   const [previewCoords, setPreviewCoords] = useState<{ x: number; y: number; z: number } | null>(null);
   const [aiSource, setAiSource] = useState<"llm" | "local" | null>(null);
+  const [aiThinking, setAiThinking] = useState(false);
 
   return (
     <div className="w-full h-full relative bg-cyber-bg">
       {roomId && <MultiplayerSync roomId={roomId} />}
-      {aiColor && <AiController aiColor={aiColor} model={aiModel} onAiSource={setAiSource} />}
+      {aiColor && <AiController aiColor={aiColor} model={aiModel} onAiSource={setAiSource} onThinking={setAiThinking} />}
 
       <Canvas
         camera={{ position: [18, -18, 16], fov: 45, up: [0, 0, 1] }}
@@ -227,7 +228,7 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
       </Canvas>
 
-      <HUD mode={roomId ? "online" : "local"} aiModel={aiModel} aiSource={aiSource} />
+      <HUD mode={roomId ? "online" : "local"} aiModel={aiModel} aiSource={aiSource} aiThinking={aiThinking} />
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         <ControlPanel />
         <SliceMonitor />

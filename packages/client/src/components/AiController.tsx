@@ -7,9 +7,11 @@ interface AiControllerProps {
   model: AiModelId;
   /** Callback to report which AI was used for the last move */
   onAiSource?: (source: "llm" | "local") => void;
+  /** Callback to report thinking state */
+  onThinking?: (thinking: boolean) => void;
 }
 
-const AI_API_TIMEOUT = 12000;
+const AI_API_TIMEOUT = 25000; // LLM can take 15-20s
 const API_BASE = import.meta.env.VITE_API_URL || (location.hostname.includes("pages.dev")
   ? "https://connect6-server.1310205058.workers.dev"
   : "");
@@ -34,7 +36,7 @@ async function callServerAi(req: AiRequestPayload): Promise<AiResponsePayload | 
   }
 }
 
-export function AiController({ aiColor, model, onAiSource }: AiControllerProps) {
+export function AiController({ aiColor, model, onAiSource, onThinking }: AiControllerProps) {
   const snapshot = useGameSnapshot();
   const { placeStone } = useGameActions();
   const busyRef = useRef(false);
@@ -57,6 +59,7 @@ export function AiController({ aiColor, model, onAiSource }: AiControllerProps) 
     };
 
     busyRef.current = true;
+    onThinking?.(true);
 
     const timer = setTimeout(async () => {
       try {
@@ -90,11 +93,12 @@ export function AiController({ aiColor, model, onAiSource }: AiControllerProps) 
         }
       } finally {
         busyRef.current = false;
+        onThinking?.(false);
       }
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [snapshot, aiColor, model, placeStone, onAiSource]);
+  }, [snapshot, aiColor, model, placeStone, onAiSource, onThinking]);
 
   return null;
 }
