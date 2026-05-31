@@ -1,4 +1,5 @@
 import { BoardConfig, Player, Stone, Vec3, Direction, AiRequestPayload, AiResponsePayload } from "./types";
+import { AiMemory } from "./ai-memory";
 
 /**
  * 13 basis direction vectors (positive half-spaces only).
@@ -99,6 +100,33 @@ export function computeAiMove(req: AiRequestPayload): AiResponsePayload {
   return { moves };
 }
 
+/**
+ * AI move computation with memory enhancement.
+ * Combines greedy evaluation with historical win-rate bonus from memory.
+ */
+export function computeAiMoveWithMemory(
+  req: AiRequestPayload, memory: AiMemory,
+): AiResponsePayload {
+  const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
+
+  if (currentPlayer !== aiColor) {
+    return { moves: [] };
+  }
+
+  const opponentColor = aiColor === Player.BLACK ? Player.WHITE : Player.BLACK;
+  const moves: Vec3[] = [];
+  const workingBoard = [...board];
+
+  for (let m = 0; m < stonesToPlace; m++) {
+    const move = pickBestMoveWithMemory(workingBoard, config, aiColor as unknown as Stone, opponentColor as unknown as Stone, memory);
+    if (!move) break;
+    moves.push(move);
+    workingBoard[move.z * config.sizeY * config.sizeX + move.y * config.sizeX + move.x] = aiColor as unknown as Stone;
+  }
+
+  return { moves };
+}
+
 function pickBestMove(
   board: number[], config: BoardConfig,
   aiStone: Stone, opponentStone: Stone,
@@ -160,5 +188,74 @@ function pickBestMove(
   }
 
   // Pick randomly among equally-scored best moves
+  return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+}
+
+/**
+ * Memory-enhanced move picker.
+ * Combines greedy score with historical win-rate bonus from memory.
+ */
+function pickBestMoveWithMemory(
+  board: number[], config: BoardConfig,
+  aiStone: Stone, opponentStone: Stone,
+  memory: AiMemory,
+): Vec3 | null {
+  let bestScore = -1;
+  let bestMoves: Vec3[] = [];
+
+  for (let z = 0; z < config.sizeZ; z++) {
+    for (let y = 0; y < config.sizeY; y++) {
+      for (let x = 0; x < config.sizeX; x++) {
+        if (board[z * config.sizeY * config.sizeX + y * config.sizeX + x] !== Stone.EMPTY) continue;
+
+        const attack = scoreCell(board, config, x, y, z, aiStone);
+        const defend = scoreCell(board, config, x, y, z, opponentStone);
+
+        // Memory bonus: historical win rate at this position
+        const memBonus = memory.query(board, config, x, y, z);
+
+        // Combined score: greedy + memory
+        const score = attack * 1.0 + defend * 1.1 + memBonus * 0.8;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMoves = [{ x, y, z }];
+        } else if (score === bestScore && score > 0) {
+          bestMoves.push({ x, y, z });
+        }
+      }
+    }
+  }
+
+  if (bestScore <= 0) {
+    // Same fallback as non-memory version
+    const cx = Math.floor(config.sizeX / 2);
+    const cy = Math.floor(config.sizeY / 2);
+    const cz = Math.floor(config.sizeZ / 2);
+    const candidates = [
+      { x: cx, y: cy, z: cz },
+      { x: cx + 1, y: cy, z: cz },
+      { x: cx, y: cy + 1, z: cz },
+      { x: cx, y: cy, z: cz + 1 },
+      { x: cx - 1, y: cy, z: cz },
+    ];
+    for (const c of candidates) {
+      if (c.x >= 0 && c.x < config.sizeX && c.y >= 0 && c.y < config.sizeY && c.z >= 0 && c.z < config.sizeZ
+        && board[c.z * config.sizeY * config.sizeX + c.y * config.sizeX + c.x] === Stone.EMPTY) {
+        return c;
+      }
+    }
+    for (let z = 0; z < config.sizeZ; z++) {
+      for (let y = 0; y < config.sizeY; y++) {
+        for (let x = 0; x < config.sizeX; x++) {
+          if (board[z * config.sizeY * config.sizeX + y * config.sizeX + x] === Stone.EMPTY) {
+            return { x, y, z };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   return bestMoves[Math.floor(Math.random() * bestMoves.length)];
 }

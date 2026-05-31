@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { computeAiMove, Player, Stone, type AiRequestPayload, type AiResponsePayload, type AiModelId } from "@connect6/shared";
+import { computeAiMove, computeAiMoveWithMemory, Player, Stone, type AiRequestPayload, type AiResponsePayload, type AiModelId } from "@connect6/shared";
 import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
+import { useAiMemory } from "../hooks/useAiMemory";
 
 interface AiControllerProps {
   aiColor: Player;
@@ -39,6 +40,7 @@ async function callServerAi(req: AiRequestPayload): Promise<AiResponsePayload | 
 export function AiController({ aiColor, model, onAiSource, onThinking }: AiControllerProps) {
   const snapshot = useGameSnapshot();
   const { placeStone } = useGameActions();
+  const memory = useAiMemory();
   const busyRef = useRef(false);
 
   useEffect(() => {
@@ -67,7 +69,8 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
         let usedLlm = false;
 
         if (model === "local") {
-          const result = computeAiMove(req);
+          // Local AI with memory enhancement
+          const result = computeAiMoveWithMemory(req, memory);
           moves = result.moves;
         } else {
           const serverResult = await callServerAi(req);
@@ -75,7 +78,7 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
           usedLlm = moves.length > 0;
 
           if (moves.length === 0) {
-            const localResult = computeAiMove(req);
+            const localResult = computeAiMoveWithMemory(req, memory);
             moves = localResult.moves;
           }
         }
@@ -87,7 +90,7 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
         }
       } catch {
         onAiSource?.("local");
-        const localResult = computeAiMove(req);
+        const localResult = computeAiMoveWithMemory(req, memory);
         for (const move of localResult.moves) {
           placeStone(move.x, move.y, move.z);
         }

@@ -10,6 +10,7 @@ import { useWebSocketState, useWebSocketActions } from "./hooks/useWebSocket";
 import { useViewState } from "./hooks/useViewStore";
 import { AiController } from "./components/AiController";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
+import { useAiMemoryActions } from "./hooks/useAiMemory";
 import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice } from "@connect6/shared";
 
 /**
@@ -32,11 +33,12 @@ const AI_MODEL_LABELS: Record<AiModelId, string> = {
   "glm-5.1": "GLM 5.1",
 };
 
-function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode }: {
+function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, memoryEntries }: {
   mode: "local" | "online"; aiModel: AiModelId;
   aiSource: "llm" | "local" | null; aiThinking: boolean;
   onResetRequest: () => void;
   gameMode: "normal" | "training" | "dual_ai";
+  memoryEntries: number;
 }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
@@ -92,6 +94,7 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode }: 
         {gameMode !== "training" && ` · ${AI_MODEL_LABELS[aiModel]}`}
         {aiSourceLabel ? ` (${aiSourceLabel})` : ""}
         {" · 棋子 "}{stoneCount}
+        {memoryEntries > 0 && ` · 记忆 ${memoryEntries} 条`}
       </p>
       {isGameOver ? (
         <div>
@@ -300,8 +303,16 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
 
   const { sendResetRequest, sendResetConfirm, sendReady } = useWebSocketActions();
   const { pendingReset, showReadyDialog, timer } = useWebSocketState();
+  const { learn: learnFromGame, stats: memoryStats } = useAiMemoryActions();
 
   const isGameOver = snapshot.winner !== Stone.EMPTY;
+
+  // Learn from completed games
+  useEffect(() => {
+    if (isGameOver && snapshot.moves.length > 0) {
+      learnFromGame(snapshot);
+    }
+  }, [isGameOver]);
 
   // Show dialog when other player requests reset
   useEffect(() => {
@@ -389,6 +400,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         aiThinking={aiThinking}
         onResetRequest={handleResetRequest}
         gameMode={gameMode}
+        memoryEntries={memoryStats.entries}
       />
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         <ControlPanel />
