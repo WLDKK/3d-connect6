@@ -2,12 +2,12 @@ import { useSyncExternalStore, useCallback } from "react";
 import { type SerializedState, Stone, type Vec3 } from "@connect6/shared";
 
 /**
- * Replay store — allows stepping through game history.
- * Works with the game store's snapshot.moves to reconstruct board states.
+ * Replay store — allows stepping through game history by turns.
+ * Turn structure: Turn 0 = move 0 (Black, 1 stone), Turn 1 = moves 1-2 (White), Turn 2 = moves 3-4 (Black), ...
  */
 
 interface ReplayState {
-  /** Current view index: -1 = empty board, 0..n-1 = after move i, n = latest (live) */
+  /** Current move index: 0 = empty board, 1 = after move 0, 3 = after moves 0-2, ... */
   viewIndex: number;
   /** Total number of moves */
   totalMoves: number;
@@ -42,13 +42,57 @@ function getSnapshot() {
   return state;
 }
 
+/**
+ * Get the move index at the END of a given turn.
+ * Turn 0 → 1 (after Black's 1 stone)
+ * Turn 1 → 3 (after White's 2 stones)
+ * Turn 2 → 5 (after Black's 2 stones)
+ * Turn n → n === 0 ? 1 : 2*n + 1
+ */
+function turnEndIndex(turn: number): number {
+  return turn === 0 ? 1 : 2 * turn + 1;
+}
+
+/**
+ * Get the turn number from a move index.
+ * Move 0 → turn 0
+ * Moves 1-2 → turn 1
+ * Moves 3-4 → turn 2
+ */
+function moveIndexToTurn(idx: number): number {
+  if (idx <= 0) return 0;
+  return Math.floor((idx - 1) / 2) + 1;
+}
+
+/**
+ * Get the next turn's end index from current viewIndex.
+ * 0 → 1 (turn 0 end)
+ * 1 → 3 (turn 1 end)
+ * 3 → 5 (turn 2 end)
+ */
+function nextTurnIndex(current: number, max: number): number {
+  if (current === 0) return Math.min(1, max);
+  const currentTurn = moveIndexToTurn(current);
+  return Math.min(turnEndIndex(currentTurn + 1), max);
+}
+
+/**
+ * Get the previous turn's end index from current viewIndex.
+ * 5 → 3, 3 → 1, 1 → 0
+ */
+function prevTurnIndex(current: number): number {
+  if (current <= 0) return 0;
+  if (current === 1) return 0;
+  const currentTurn = moveIndexToTurn(current);
+  return turnEndIndex(currentTurn - 1);
+}
+
 /** Update total moves from game snapshot */
 export function updateReplayMoves(moves: Vec3[]) {
   const totalMoves = moves.length;
   if (state.isLive) {
     setState({ totalMoves, viewIndex: totalMoves });
   } else {
-    // Clamp viewIndex to valid range
     setState({ totalMoves, viewIndex: Math.min(state.viewIndex, totalMoves) });
   }
 }
@@ -60,7 +104,6 @@ export function getReplayBoard(snapshot: SerializedState, viewIndex: number): nu
 
   for (let i = 0; i < Math.min(viewIndex, moves.length); i++) {
     const move = moves[i];
-    // Connect6: move 0 = Black, moves 1-2 = White, moves 3-4 = Black, ...
     const isBlack = i === 0 || (Math.floor((i - 1) / 2) % 2 === 1);
     const idx = move.z * config.sizeY * config.sizeX + move.y * config.sizeX + move.x;
     board[idx] = isBlack ? Stone.BLACK : Stone.WHITE;
@@ -69,30 +112,19 @@ export function getReplayBoard(snapshot: SerializedState, viewIndex: number): nu
   return board;
 }
 
-/** Get the current player at a given view index */
-export function getReplayPlayer(viewIndex: number): number {
-  if (viewIndex === 0) return Stone.BLACK; // Round 0, Black goes first
-  // After move 0: White's turn (moves 1-2), after moves 1-2: Black's turn (moves 3-4), ...
-  const isBlack = viewIndex === 0 || (Math.floor((viewIndex - 1) / 2) % 2 === 1);
-  return isBlack ? Stone.BLACK : Stone.WHITE;
-}
-
 export function useReplayState(): ReplayState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function useReplayActions() {
   const goBack = useCallback(() => {
-    if (state.viewIndex > 0) {
-      setState({ viewIndex: state.viewIndex - 1, isLive: false });
-    }
+    const newIndex = prevTurnIndex(state.viewIndex);
+    setState({ viewIndex: newIndex, isLive: newIndex >= state.totalMoves });
   }, []);
 
   const goForward = useCallback(() => {
-    if (state.viewIndex < state.totalMoves) {
-      const newIndex = state.viewIndex + 1;
-      setState({ viewIndex: newIndex, isLive: newIndex >= state.totalMoves });
-    }
+    const newIndex = nextTurnIndex(state.viewIndex, state.totalMoves);
+    setState({ viewIndex: newIndex, isLive: newIndex >= state.totalMoves });
   }, []);
 
   const goLatest = useCallback(() => {

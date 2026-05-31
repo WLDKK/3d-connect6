@@ -12,7 +12,7 @@ import { AiController } from "./components/AiController";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
 import { ReplayControls } from "./components/ReplayControls";
 import { useAiMemoryActions } from "./hooks/useAiMemory";
-import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, getReplayPlayer } from "./hooks/useReplayStore";
+import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard } from "./hooks/useReplayStore";
 import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice } from "@connect6/shared";
 
 /**
@@ -309,6 +309,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
   const [aiThinking, setAiThinking] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [waitingReset, setWaitingReset] = useState(false);
+  const [waitingReady, setWaitingReady] = useState(false);
 
   const { sendResetRequest, sendResetConfirm, sendReady } = useWebSocketActions();
   const { pendingReset, showReadyDialog, timer } = useWebSocketState();
@@ -325,9 +326,6 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
   const replayBoard = !replayState.isLive
     ? getReplayBoard(snapshot, replayState.viewIndex)
     : null;
-  const replayPlayer = !replayState.isLive
-    ? getReplayPlayer(replayState.viewIndex)
-    : null;
 
   const isGameOver = snapshot.winner !== Stone.EMPTY;
 
@@ -342,6 +340,11 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
   useEffect(() => {
     if (pendingReset) setShowResetDialog(true);
   }, [pendingReset]);
+
+  // Reset waitingReady when game starts (timer received)
+  useEffect(() => {
+    if (timer) setWaitingReady(false);
+  }, [timer]);
 
   // Clear waiting state when reset completes
   useEffect(() => {
@@ -385,6 +388,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
 
   const handleReady = useCallback(() => {
     sendReady();
+    setWaitingReady(true);
   }, [sendReady]);
 
   const { theme } = useViewState();
@@ -476,13 +480,22 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/60">
           <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-8 text-center pointer-events-auto">
             <p className="text-cyber-accent font-mono text-lg mb-2">双方已就位</p>
-            <p className="text-cyber-accent/50 font-mono text-xs mb-6">点击准备开始游戏</p>
-            <button
-              onClick={handleReady}
-              className="px-8 py-2 bg-cyber-accent/20 text-cyber-accent rounded-lg hover:bg-cyber-accent/30 font-mono text-sm transition-colors"
-            >
-              准备开始
-            </button>
+            {waitingReady ? (
+              <>
+                <p className="text-yellow-400 font-mono text-sm mb-6">⏳ 等待对方确认...</p>
+                <div className="w-6 h-6 border-2 border-cyber-accent/30 border-t-cyber-accent rounded-full animate-spin mx-auto" />
+              </>
+            ) : (
+              <>
+                <p className="text-cyber-accent/50 font-mono text-xs mb-6">点击准备开始游戏</p>
+                <button
+                  onClick={handleReady}
+                  className="px-8 py-2 bg-cyber-accent/20 text-cyber-accent rounded-lg hover:bg-cyber-accent/30 font-mono text-sm transition-colors"
+                >
+                  准备开始
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
