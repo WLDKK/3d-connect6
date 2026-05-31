@@ -37,6 +37,8 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
 }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
+  const { status } = useWebSocketState();
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const isBlack = snapshot.currentPlayer === Player.BLACK;
   const playerName = isBlack ? "黑方" : "白方";
@@ -45,14 +47,27 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
   const stoneCount = snapshot.board.reduce((n, s) => s !== 0 ? n + 1 : n, 0);
   const aiSourceLabel = aiSource === "llm" ? "☁️ LLM" : aiSource === "local" ? "💻 本地" : "";
 
-  const handleReset = () => {
+  const handleResetClick = () => {
+    setShowConfirm(true);
+  };
+
+  const handleConfirmYes = () => {
+    setShowConfirm(false);
     if (mode === "local") {
-      if (window.confirm("确定要清空棋盘吗？")) {
+      reset();
+    } else {
+      // Multiplayer: send reset request
+      if (status === "connected") {
+        onResetRequest();
+      } else {
+        // Not connected — reset locally as fallback
         reset();
       }
-    } else {
-      onResetRequest();
     }
+  };
+
+  const handleConfirmNo = () => {
+    setShowConfirm(false);
   };
 
   return (
@@ -66,9 +81,9 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
           <p className="text-lg text-yellow-400 font-bold">{winnerName} 获胜！</p>
           <button
             className="mt-2 px-3 py-1 bg-cyber-grid text-cyber-accent text-xs rounded pointer-events-auto hover:bg-opacity-80"
-            onClick={handleReset}
+            onClick={handleResetClick}
           >
-            {mode === "local" ? "新游戏" : "申请重置"}
+            新游戏
           </button>
         </div>
       ) : (
@@ -80,10 +95,37 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
           </p>
           <button
             className="mt-1.5 px-2 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded pointer-events-auto hover:bg-red-900/50 transition-colors"
-            onClick={handleReset}
+            onClick={handleResetClick}
           >
             清空棋盘
           </button>
+        </div>
+      )}
+
+      {/* Reset confirmation dialog */}
+      {showConfirm && (
+        <div className="fixed inset-0 flex items-center justify-center z-[100] bg-black/50">
+          <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-6 text-center pointer-events-auto">
+            <p className="text-cyber-accent font-mono text-sm mb-4">
+              {mode === "local"
+                ? "确定要清空棋盘吗？"
+                : "确定要申请重置吗？双方确认后将清空棋盘。"}
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={handleConfirmYes}
+                className="px-4 py-1.5 bg-red-900/40 text-red-400 rounded hover:bg-red-900/60 font-mono text-xs transition-colors"
+              >
+                确定
+              </button>
+              <button
+                onClick={handleConfirmNo}
+                className="px-4 py-1.5 bg-cyber-grid text-cyber-accent/70 rounded hover:bg-cyber-grid/80 font-mono text-xs transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
