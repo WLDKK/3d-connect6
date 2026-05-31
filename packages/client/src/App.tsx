@@ -273,7 +273,7 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
         round: payload.round,
         stonesPlacedThisTurn: payload.stonesPlacedThisTurn,
         winner: payload.winner,
-        moves: [],
+        moves: payload.lastMove ? [payload.lastMove] : [],
       });
     });
     return () => setOnStateUpdate(null);

@@ -245,20 +245,21 @@ function analyzePosition(board: number[], config: BoardConfig, aiStone: Stone): 
 }
 
 /** Call using OpenAI-compatible protocol */
-async function callOpenAI(cfg: ModelConfig, system: string, user: string): Promise<string | null> {
+async function callOpenAI(cfg: ModelConfig, system: string, user: string, signal?: AbortSignal): Promise<string | null> {
   const res = await fetch(cfg.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${LLM_API_KEY}`,
     },
+    signal,
     body: JSON.stringify({
       model: cfg.model,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 999999,
+      max_tokens: 16384,
       temperature: 0.15,
     }),
   });
@@ -268,7 +269,7 @@ async function callOpenAI(cfg: ModelConfig, system: string, user: string): Promi
 }
 
 /** Call using Anthropic protocol */
-async function callAnthropic(cfg: ModelConfig, system: string, user: string): Promise<string | null> {
+async function callAnthropic(cfg: ModelConfig, system: string, user: string, signal?: AbortSignal): Promise<string | null> {
   const res = await fetch(cfg.url, {
     method: "POST",
     headers: {
@@ -276,9 +277,10 @@ async function callAnthropic(cfg: ModelConfig, system: string, user: string): Pr
       "x-api-key": LLM_API_KEY,
       "anthropic-version": "2023-06-01",
     },
+    signal,
     body: JSON.stringify({
       model: cfg.model,
-      max_tokens: 999999,
+      max_tokens: 16384,
       temperature: 0.15,
       system,
       messages: [
@@ -316,8 +318,8 @@ async function callLLM(req: AiRequestPayload): Promise<{ x: number; y: number; z
     const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
     const text = cfg.protocol === "openai"
-      ? await callOpenAI(cfg, system, user)
-      : await callAnthropic(cfg, system, user);
+      ? await callOpenAI(cfg, system, user, controller.signal)
+      : await callAnthropic(cfg, system, user, controller.signal);
 
     clearTimeout(timer);
     console.log(`[AI] LLM response: ${text?.slice(0, 100)}`);
@@ -336,12 +338,25 @@ async function callLLM(req: AiRequestPayload): Promise<{ x: number; y: number; z
 
 /**
  * Compute AI move: try LLM first, fall back to local Dummy AI.
+ * If LLM returns fewer moves than needed, fill the rest with local AI.
  */
 export async function computeAiMoveWithLLM(req: AiRequestPayload): Promise<AiResponsePayload> {
   if (req.model && req.model !== "local") {
     const llmMoves = await callLLM(req);
     if (llmMoves && llmMoves.length > 0) {
-      return { moves: llmMoves.slice(0, req.stonesToPlace) };
+      const moves = llmMoves.slice(0, req.stonesToPlace);
+      // If LLM returned fewer moves than needed, fill with local AI
+      if (moves.length < req.stonesToPlace) {
+        const remaining = { ...req, stonesToPlace: req.stonesToPlace - moves.length };
+        // Apply LLM moves to a working board so local AI doesn't overlap
+        const workingBoard = [...req.board];
+        for (const m of moves) {
+          workingBoard[m.z * req.config.sizeY * req.config.sizeX + m.y * req.config.sizeX + m.x] = req.aiColor;
+        }
+        const localResult = computeAiMove({ ...remaining, board: workingBoard });
+        moves.push(...localResult.moves);
+      }
+      return { moves };
     }
   }
   return computeAiMove(req);

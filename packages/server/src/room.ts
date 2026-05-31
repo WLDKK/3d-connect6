@@ -133,12 +133,12 @@ export class GameRoom extends DurableObject {
     this.broadcast({ type: MsgType.TIMER, payload });
   }
 
-  private handleTimeout(): void {
+  private async handleTimeout(): Promise<void> {
     if (this.engine.state.winner !== Stone.EMPTY) return;
     const loser = this.engine.state.currentPlayer;
     const winner = loser === Player.BLACK ? Player.WHITE : Player.BLACK;
     this.engine.state.winner = winner;
-    this.persistState();
+    await this.persistState();
     this.broadcastState();
     this.broadcast({ type: MsgType.GAME_OVER, payload: { winner, reason: "timeout", loser } });
   }
@@ -346,7 +346,7 @@ export class GameRoom extends DurableObject {
     }
   }
 
-  private executeReset(): void {
+  private async executeReset(): Promise<void> {
     this.clearTurnTimer();
     if (this.resetTimer) {
       clearTimeout(this.resetTimer);
@@ -357,7 +357,7 @@ export class GameRoom extends DurableObject {
     this.gameStarted = false;
 
     this.engine = new Connect6Engine(this.engine.config);
-    this.persistState();
+    await this.persistState();
     this.broadcastState();
     this.broadcast({ type: MsgType.RESET_ACK, payload: { success: true } });
 

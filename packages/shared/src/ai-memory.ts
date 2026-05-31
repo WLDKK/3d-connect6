@@ -93,7 +93,8 @@ export class AiMemory {
     // Replay the game and record which moves were made by the winner
     for (let i = 0; i < record.moves.length; i++) {
       const move = record.moves[i];
-      const isBlackTurn = i === 0 || (i % 2 === 1); // Simplified turn tracking
+      // Connect6: move 0 = Black, moves 1-2 = White, moves 3-4 = Black, ...
+      const isBlackTurn = i === 0 || (Math.floor((i - 1) / 2) % 2 === 1);
       const color = isBlackTurn ? Stone.BLACK : Stone.WHITE;
 
       const idx = move.z * config.sizeY * config.sizeX + move.y * config.sizeX + move.x;
