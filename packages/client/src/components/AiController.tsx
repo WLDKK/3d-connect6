@@ -12,7 +12,7 @@ interface AiControllerProps {
   onThinking?: (thinking: boolean) => void;
 }
 
-const AI_API_TIMEOUT = 300000; // 5 minutes
+const AI_API_TIMEOUT = 120000; // 2 minutes
 const API_BASE = import.meta.env.VITE_API_URL || (location.hostname.includes("pages.dev")
   ? "https://connect6-server.1310205058.workers.dev"
   : "");

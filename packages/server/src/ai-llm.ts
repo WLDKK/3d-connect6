@@ -15,7 +15,7 @@ import {
 
 /** API key — read from env (wrangler secret) or fallback for local dev */
 let LLM_API_KEY = "ak-a441b4719add46ae930f0246782c22d0";
-const LLM_TIMEOUT_MS = 300000; // 5 minutes
+const LLM_TIMEOUT_MS = 120000; // 2 minutes
 
 /** Inject API key from Worker env (call once at startup) */
 export function setAiApiKey(key: string) {
@@ -258,7 +258,7 @@ async function callOpenAI(cfg: ModelConfig, system: string, user: string): Promi
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 20000,
+      max_tokens: 999999,
       temperature: 0.15,
     }),
   });
@@ -278,7 +278,7 @@ async function callAnthropic(cfg: ModelConfig, system: string, user: string): Pr
     },
     body: JSON.stringify({
       model: cfg.model,
-      max_tokens: 20000,
+      max_tokens: 999999,
       temperature: 0.15,
       system,
       messages: [

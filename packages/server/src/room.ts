@@ -23,7 +23,7 @@ interface TimerPayload {
   turnStartTime: number;
 }
 
-const TURN_TIMEOUT_MS = 90_000;
+const TURN_TIMEOUT_MS = 300_000; // 5 minutes
 
 export class GameRoom extends DurableObject {
   private engine!: Connect6Engine;
