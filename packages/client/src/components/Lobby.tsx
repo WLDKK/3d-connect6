@@ -124,10 +124,14 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
           )}
         </div>
 
-        <p className="text-cyber-accent/30 text-[10px] text-center mt-6 font-mono leading-relaxed">
-          多人对战需在另一个终端运行<br />
-          <span className="text-cyber-accent/50">npm run dev:server</span>
-        </p>
+        <div className="text-cyber-accent/30 text-[10px] text-center mt-6 font-mono leading-relaxed space-y-1">
+          <p>
+            <a href="https://github.com/WLDKK/3d-connect6/blob/main/RULES.md" target="_blank" rel="noopener" className="text-cyber-accent/50 hover:text-cyber-accent/70 underline">📖 游戏规则</a>
+            {" · "}
+            <a href="https://github.com/WLDKK/3d-connect6" target="_blank" rel="noopener" className="text-cyber-accent/50 hover:text-cyber-accent/70 underline">GitHub</a>
+          </p>
+          <p>多人对战需在另一个终端运行 <span className="text-cyber-accent/50">npm run dev:server</span></p>
+        </div>
       </div>
     </div>
   );
