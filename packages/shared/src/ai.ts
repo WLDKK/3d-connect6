@@ -44,7 +44,7 @@ function countDir(
  * Returns the maximum chain length achievable through this cell in any direction.
  * Higher score = more valuable move.
  */
-function scoreCell(
+export function scoreCell(
   board: number[], config: BoardConfig,
   x: number, y: number, z: number,
   color: Stone,

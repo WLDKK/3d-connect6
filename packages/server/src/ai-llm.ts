@@ -1,8 +1,10 @@
 import {
   computeAiMove,
+  scoreCell,
   type AiRequestPayload,
   type AiResponsePayload,
   type AiModelId,
+  type BoardConfig,
   Stone, Player,
 } from "@connect6/shared";
 
@@ -102,22 +104,85 @@ function buildPrompts(req: AiRequestPayload) {
   const { board, config, aiColor, stonesToPlace } = req;
   const { sizeX: sx, sizeY: sy, sizeZ: sz, winLength } = config;
   const colorName = aiColor === Player.BLACK ? "Black (X)" : "White (O)";
+  const oppName = aiColor === Player.BLACK ? "White (O)" : "Black (X)";
   const boardText = buildBoardText(board, sx, sy, sz);
 
-  const system = `You are a Connect6 game AI playing on a 3D board (${sx}x${sy}x${sz}).
-Win condition: get ${winLength} in a row on any straight line (orthogonal, face diagonal, or space diagonal).
-Coordinates are (x, y, z) where x=0..${sx - 1}, y=0..${sy - 1}, z=0..${sz - 1}.
-You play as ${colorName}. Respond with ONLY your move coordinates in format: (x, y, z).
-No explanation needed. Just the coordinates.`;
+  // Count stones for context
+  let blackCount = 0, whiteCount = 0;
+  for (const s of board) {
+    if (s === Stone.BLACK) blackCount++;
+    if (s === Stone.WHITE) whiteCount++;
+  }
 
-  const user = `Current board state (X=Black, O=White, .=empty):
+  // Find threatening patterns for strategic context
+  const threats = findThreats(board, config, aiColor as unknown as Stone);
+
+  const system = `You are an expert Connect6 AI player on a 3D board of ${sx}×${sy}×${sz}.
+You play as ${colorName} against ${oppName}.
+
+RULES:
+- The board is 3D: coordinates are (x, y, z), each ranging 0 to ${sx - 1}.
+- First move (round 0): Black places 1 stone.
+- After round 0: each player places 2 stones per turn.
+- WIN: first to get ${winLength} stones in a straight line wins.
+- Lines can be: axis-aligned (X/Y/Z), face diagonal (2D diagonal on any face), or space diagonal (3D diagonal).
+- You must place on EMPTY cells only.
+
+STRATEGY (prioritized):
+1. WIN: If you can complete ${winLength} in a row, do it immediately.
+2. BLOCK: If opponent has ${winLength - 1} in a row with both ends open, you MUST block one end.
+3. DOUBLE THREAT: Create two lines of ${winLength - 1}+ simultaneously — opponent can't block both.
+4. EXTEND: Build your own lines toward ${winLength}. Center positions are more valuable.
+5. NEVER place next to your own stones if it doesn't extend a meaningful line.
+
+You are a GRANDMASTER. Think carefully about which move creates the most threats.
+Reply with ONLY the coordinate(s). Format: (x, y, z) or (x1,y1,z1) (x2,y2,z2) for 2 stones.
+No explanation. Just coordinates.`;
+
+  const user = `Board (${sx}×${sy}×${sz}), you are ${colorName}. Place ${stonesToPlace} stone(s).
+${blackCount} black, ${whiteCount} white on board.
 
 ${boardText}
+${threats ? `\n⚠️ Threats: ${threats}` : ""}
 
-You are ${colorName}. You need to place ${stonesToPlace} stone(s).
-What is your best move? Reply with coordinates only: (x, y, z)`;
+Your best move (coordinates only):`;
 
   return { system, user };
+}
+
+/**
+ * Find threatening patterns for strategic context.
+ * Returns a human-readable string of immediate threats.
+ */
+function findThreats(board: number[], config: BoardConfig, aiStone: Stone): string {
+  const { sizeX: sx, sizeY: sy, sizeZ: sz, winLength } = config;
+  const oppStone = aiStone === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
+  const threats: string[] = [];
+
+  // Check all cells for high-value patterns
+  for (let z = 0; z < sz; z++) {
+    for (let y = 0; y < sy; y++) {
+      for (let x = 0; x < sx; x++) {
+        const stone = board[z * sy * sx + y * sx + x] as Stone;
+        if (stone !== Stone.EMPTY) continue;
+
+        // Check if opponent placing here would create a threat
+        const oppScore = scoreCell(board, config, x, y, z, oppStone);
+        const aiScore = scoreCell(board, config, x, y, z, aiStone);
+
+        if (oppScore >= winLength - 1) {
+          threats.push(`Opponent can reach ${oppScore} at (${x},${y},${z}) — BLOCK THIS!`);
+        }
+        if (aiScore >= winLength - 1) {
+          threats.push(`You can reach ${aiScore} at (${x},${y},${z}) — TAKE THIS!`);
+        }
+      }
+    }
+  }
+
+  // Deduplicate and limit
+  const unique = [...new Set(threats)].slice(0, 5);
+  return unique.length > 0 ? unique.join("; ") : "";
 }
 
 /** Call using OpenAI-compatible protocol */
