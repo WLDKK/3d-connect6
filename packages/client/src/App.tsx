@@ -10,7 +10,9 @@ import { useWebSocketState, useWebSocketActions } from "./hooks/useWebSocket";
 import { useViewState } from "./hooks/useViewStore";
 import { AiController } from "./components/AiController";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
+import { ReplayControls } from "./components/ReplayControls";
 import { useAiMemoryActions } from "./hooks/useAiMemory";
+import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, getReplayPlayer } from "./hooks/useReplayStore";
 import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice } from "@connect6/shared";
 
 /**
@@ -48,9 +50,9 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, me
   const [showConfirm, setShowConfirm] = useState(false);
 
   const isDark = theme === "dark";
-  const accent = isDark ? "text-cyber-accent" : "text-gray-800";
-  const accentDim = isDark ? "text-cyber-accent/60" : "text-gray-500";
-  const accentMuted = isDark ? "text-cyber-accent/40" : "text-gray-400";
+  const accent = isDark ? "text-cyber-accent" : "text-gray-900";
+  const accentDim = isDark ? "text-cyber-accent/60" : "text-gray-600";
+  const accentMuted = isDark ? "text-cyber-accent/40" : "text-gray-500";
 
   const isBlack = snapshot.currentPlayer === Player.BLACK;
   const playerName = isBlack ? "黑方" : "白方";
@@ -112,8 +114,10 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, me
         </div>
       ) : (
         <div>
-          <p className={`text-xs ${accentDim}`}>第 {snapshot.round} 回合</p>
-          <p className={`text-sm font-bold ${isDark ? (isBlack ? "text-gray-300" : "text-white") : (isBlack ? "text-gray-700" : "text-gray-900")}`}>
+          <p className={`text-xs ${accentDim}`}>
+            第 {snapshot.round} 回合 · {isBlack ? "⚫" : "⚪"}{playerName}
+          </p>
+          <p className={`text-sm font-bold ${isDark ? (isBlack ? "text-gray-300" : "text-white") : (isBlack ? "text-gray-800" : "text-black")}`}>
             {aiThinking ? "AI 思考中..." : `${playerName}落子`}
             {snapshot.round > 0 && `（本回合剩余 ${2 - snapshot.stonesPlacedThisTurn} 枚）`}
           </p>
@@ -309,6 +313,21 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
   const { sendResetRequest, sendResetConfirm, sendReady } = useWebSocketActions();
   const { pendingReset, showReadyDialog, timer } = useWebSocketState();
   const { learn: learnFromGame, stats: memoryStats } = useAiMemoryActions();
+  const replayState = useReplayState();
+  const { goLatest } = useReplayActions();
+
+  // Sync replay moves when snapshot changes
+  useEffect(() => {
+    updateReplayMoves(snapshot.moves);
+  }, [snapshot.moves]);
+
+  // Compute replay board (null = use live snapshot)
+  const replayBoard = !replayState.isLive
+    ? getReplayBoard(snapshot, replayState.viewIndex)
+    : null;
+  const replayPlayer = !replayState.isLive
+    ? getReplayPlayer(replayState.viewIndex)
+    : null;
 
   const isGameOver = snapshot.winner !== Stone.EMPTY;
 
@@ -395,7 +414,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         <color attach="background" args={[bgColor]} />
         <fog attach="fog" args={[bgColor, 25, 60]} />
         <Suspense fallback={null}>
-          <GameScene previewCoords={previewCoords} />
+          <GameScene previewCoords={previewCoords} replayBoard={replayBoard} />
         </Suspense>
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
       </Canvas>
@@ -416,6 +435,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         {gameMode === "training" && trainingAnalyze && <TrainingAnalysis />}
       </div>
       <CoordInput onPreview={setPreviewCoords} />
+      <ReplayControls />
       {roomId && <RoomStatus roomId={roomId} />}
 
       {/* Back button */}

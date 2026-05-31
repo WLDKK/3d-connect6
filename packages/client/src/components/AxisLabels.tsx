@@ -27,9 +27,9 @@ export function AxisLabels({ sizeX, sizeY, sizeZ }: AxisLabelsProps) {
   const tickGap = CELL_SIZE * 0.6;
 
   // Theme-aware colors
-  const xColor = isDark ? "#ff4444" : "#cc2222";
-  const yColor = isDark ? "#44ff44" : "#228822";
-  const zColor = isDark ? "#4488ff" : "#2255cc";
+  const xColor = isDark ? "#ff4444" : "#991111";
+  const yColor = isDark ? "#44ff44" : "#116611";
+  const zColor = isDark ? "#4488ff" : "#113399";
 
   // Origin: where X=0, Y=0, Z=0 meet = board corner
   const origin = gridToWorld(sizeX - 1, 0, 0, sizeX, sizeY, sizeZ);

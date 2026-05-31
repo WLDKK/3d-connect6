@@ -20,14 +20,14 @@ const THEMES = {
   },
   light: {
     bg: "#f5f0e6",
-    grid: "#c8bfb0",
-    dot: "#a09080",
+    grid: "#b0a898",
+    dot: "#887868",
     black: "#1a1a2e",
     blackGlow: "#4a90d9",
     white: "#e0e0e0",
     whiteGlow: "#ffffff",
-    text: "#555",
-    textDim: "#888",
+    text: "#333",
+    textDim: "#666",
   },
 };
 

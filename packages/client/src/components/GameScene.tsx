@@ -199,7 +199,7 @@ function BoardHitTarget({
 /**
  * Main game scene — right-hand coordinate system, Z up.
  */
-export function GameScene({ previewCoords }: { previewCoords: { x: number; y: number; z: number } | null }) {
+export function GameScene({ previewCoords, replayBoard }: { previewCoords: { x: number; y: number; z: number } | null; replayBoard?: number[] | null }) {
   const snapshot = useGameSnapshot();
   const { transparencyEnabled } = useViewState();
   const [hoverPos, setHoverPos] = useState<[number, number, number] | null>(null);
@@ -223,7 +223,7 @@ export function GameScene({ previewCoords }: { previewCoords: { x: number; y: nu
       <pointLight position={[0, 0, -5]} intensity={0.2} color="#7b61ff" />
 
       {!transparencyEnabled && <BoardGrid sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} />}
-      <Stones sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} hoverGrid={hoverGrid} />
+      <Stones sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} hoverGrid={hoverGrid} replayBoard={replayBoard} />
 
       <BoardHitTarget
         sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ}

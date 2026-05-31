@@ -47,9 +47,10 @@ interface StonesProps {
   sizeY: number;
   sizeZ: number;
   hoverGrid: { x: number; y: number; z: number } | null;
+  replayBoard?: number[] | null;
 }
 
-export function Stones({ sizeX, sizeY, sizeZ, hoverGrid }: StonesProps) {
+export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesProps) {
   // Normal stones
   const blackRef = useRef<THREE.InstancedMesh>(null);
   const whiteRef = useRef<THREE.InstancedMesh>(null);
@@ -95,7 +96,8 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid }: StonesProps) {
     if (!bRef || !wRef || !bgRef || !wgRef) return;
 
     let bN = 0, wN = 0, bgN = 0, wgN = 0;
-    const { board, config } = snapshot;
+    const config = snapshot.config;
+    const board = replayBoard ?? snapshot.board;
     const sx = config.sizeX, sy = config.sizeY, sz = config.sizeZ;
 
     for (let z = 0; z < sz; z++) {
