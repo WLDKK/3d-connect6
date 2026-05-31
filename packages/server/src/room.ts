@@ -329,7 +329,7 @@ export class GameRoom extends DurableObject {
     this.resetTimer = setTimeout(() => {
       this.resetConfirmations.clear();
       this.broadcast({ type: MsgType.RESET_ACK, payload: { success: false } });
-    }, 30_000);
+    }, 480_000); // 8 minutes
   }
 
   private handleResetConfirm(ws: WebSocket): void {
