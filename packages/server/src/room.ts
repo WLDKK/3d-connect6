@@ -159,7 +159,11 @@ export class GameRoom extends DurableObject {
 
     const assignPayload: PlayerAssignedPayload = { color };
     ws.send(JSON.stringify({ type: MsgType.PLAYER_ASSIGNED, payload: assignPayload }));
-    this.sendRoomInfo(ws);
+
+    // Send room info to ALL clients (so existing players know about the new join)
+    for (const s of this.getAllSockets()) {
+      this.sendRoomInfo(s);
+    }
   }
 
   private async handleMove(ws: WebSocket, payload: MovePayload): Promise<void> {
@@ -213,5 +217,10 @@ export class GameRoom extends DurableObject {
     if (ws === this.playerBlack) this.playerBlack = null;
     else if (ws === this.playerWhite) this.playerWhite = null;
     else this.observers.delete(ws);
+
+    // Notify remaining players about the disconnect
+    for (const s of this.getAllSockets()) {
+      this.sendRoomInfo(s);
+    }
   }
 }
