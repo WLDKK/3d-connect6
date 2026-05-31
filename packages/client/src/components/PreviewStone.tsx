@@ -19,8 +19,8 @@ export function PreviewStone({ position, isBlack }: PreviewStoneProps) {
   const glowRef = useRef<THREE.MeshBasicMaterial>(null);
   const coreRef = useRef<THREE.MeshStandardMaterial>(null);
 
-  const baseColor = isBlack ? "#aaaaaa" : "#ffffff";
-  const glowColor = isBlack ? "#00f0ff" : "#f0f0ff";
+  const baseColor = isBlack ? "#1a1a2e" : "#e0e0e0";
+  const glowColor = isBlack ? "#00f0ff" : "#ffffff";
 
   useFrame(({ clock }) => {
     if (!groupRef.current || !glowRef.current || !coreRef.current) return;
