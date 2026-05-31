@@ -28,7 +28,7 @@ const AI_MODEL_LABELS: Record<AiModelId, string> = {
   "glm-5.1": "GLM 5.1",
 };
 
-function HUD({ mode, aiModel }: { mode: "local" | "online"; aiModel: AiModelId }) {
+function HUD({ mode, aiModel, aiSource }: { mode: "local" | "online"; aiModel: AiModelId; aiSource: "llm" | "local" | null }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
 
@@ -37,12 +37,13 @@ function HUD({ mode, aiModel }: { mode: "local" | "online"; aiModel: AiModelId }
   const isGameOver = snapshot.winner !== Stone.EMPTY;
   const winnerName = snapshot.winner === Player.BLACK ? "黑方" : snapshot.winner === Player.WHITE ? "白方" : "";
   const stoneCount = snapshot.board.reduce((n, s) => s !== 0 ? n + 1 : n, 0);
+  const aiSourceLabel = aiSource === "llm" ? "☁️ LLM" : aiSource === "local" ? "💻 本地" : "";
 
   return (
     <div className="absolute top-4 left-4 text-cyber-accent font-mono text-sm pointer-events-none select-none">
       <h1 className="text-2xl font-bold tracking-wider mb-1">3D 六子棋</h1>
       <p className="text-[10px] opacity-40 mb-2">
-        {mode === "local" ? "单机" : "多人"} · {AI_MODEL_LABELS[aiModel]} · 棋子 {stoneCount}
+        {mode === "local" ? "单机" : "多人"} · {AI_MODEL_LABELS[aiModel]}{aiSourceLabel ? ` (${aiSourceLabel})` : ""} · 棋子 {stoneCount}
       </p>
       {isGameOver ? (
         <div>
@@ -204,11 +205,12 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
 /** Game view — the full 3D scene with controls */
 function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiColor: Player | null; aiModel: AiModelId }) {
   const [previewCoords, setPreviewCoords] = useState<{ x: number; y: number; z: number } | null>(null);
+  const [aiSource, setAiSource] = useState<"llm" | "local" | null>(null);
 
   return (
     <div className="w-full h-full relative bg-cyber-bg">
       {roomId && <MultiplayerSync roomId={roomId} />}
-      {aiColor && <AiController aiColor={aiColor} model={aiModel} />}
+      {aiColor && <AiController aiColor={aiColor} model={aiModel} onAiSource={setAiSource} />}
 
       <Canvas
         camera={{ position: [18, -18, 16], fov: 45, up: [0, 0, 1] }}
@@ -223,7 +225,7 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
       </Canvas>
 
-      <HUD mode={roomId ? "online" : "local"} aiModel={aiModel} />
+      <HUD mode={roomId ? "online" : "local"} aiModel={aiModel} aiSource={aiSource} />
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         <ControlPanel />
         <SliceMonitor />

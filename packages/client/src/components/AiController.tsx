@@ -5,6 +5,8 @@ import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
 interface AiControllerProps {
   aiColor: Player;
   model: AiModelId;
+  /** Callback to report which AI was used for the last move */
+  onAiSource?: (source: "llm" | "local") => void;
 }
 
 const AI_API_TIMEOUT = 12000;
@@ -30,12 +32,7 @@ async function callServerAi(req: AiRequestPayload): Promise<AiResponsePayload | 
   }
 }
 
-/**
- * Auto-plays for the AI when it's the AI's turn.
- * If model is "local", uses client-side Dummy AI directly.
- * Otherwise, calls server LLM endpoint with local fallback.
- */
-export function AiController({ aiColor, model }: AiControllerProps) {
+export function AiController({ aiColor, model, onAiSource }: AiControllerProps) {
   const snapshot = useGameSnapshot();
   const { placeStone } = useGameActions();
   const busyRef = useRef(false);
@@ -62,28 +59,29 @@ export function AiController({ aiColor, model }: AiControllerProps) {
     const timer = setTimeout(async () => {
       try {
         let moves: { x: number; y: number; z: number }[] = [];
+        let usedLlm = false;
 
         if (model === "local") {
-          // Local Dummy AI — no network
           const result = computeAiMove(req);
           moves = result.moves;
         } else {
-          // Try server LLM endpoint
           const serverResult = await callServerAi(req);
           moves = serverResult?.moves ?? [];
+          usedLlm = moves.length > 0;
 
-          // Fallback to local if server fails
           if (moves.length === 0) {
             const localResult = computeAiMove(req);
             moves = localResult.moves;
           }
         }
 
+        onAiSource?.(usedLlm ? "llm" : "local");
+
         for (const move of moves) {
           placeStone(move.x, move.y, move.z);
         }
       } catch {
-        // Emergency fallback
+        onAiSource?.("local");
         const localResult = computeAiMove(req);
         for (const move of localResult.moves) {
           placeStone(move.x, move.y, move.z);
@@ -94,7 +92,7 @@ export function AiController({ aiColor, model }: AiControllerProps) {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [snapshot, aiColor, model, placeStone]);
+  }, [snapshot, aiColor, model, placeStone, onAiSource]);
 
   return null;
 }
