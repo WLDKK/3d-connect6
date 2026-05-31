@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useWebSocketState } from "../hooks/useWebSocket";
 import { useViewState, useViewActions } from "../hooks/useViewStore";
 import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
@@ -241,7 +241,8 @@ interface RoomStatusProps {
 
 export function RoomStatus({ roomId }: RoomStatusProps) {
   const { status, playerColor, roomInfo, timer, error } = useWebSocketState();
-  const [remaining, setRemaining] = useState(90);
+  const [remaining, setRemaining] = useState(0);
+  const { theme } = useViewState();
 
   const colorName = playerColor === Player.BLACK ? "黑方" : playerColor === Player.WHITE ? "白方" : "观战";
   const colorClass = playerColor === Player.BLACK ? "text-gray-300" : "text-white";
@@ -252,13 +253,27 @@ export function RoomStatus({ roomId }: RoomStatusProps) {
   const isGameOver = roomInfo?.state?.winner !== Stone.EMPTY;
   const isMyTurn = timer?.currentPlayer === playerColor;
 
-  // Countdown tick
-  const { theme } = useViewState();
   const accent = theme === "dark" ? "text-cyber-accent" : "text-gray-800";
   const accentDim = theme === "dark" ? "text-cyber-accent/50" : "text-gray-500";
-
-  // Simple countdown
   const timerColor = remaining <= 15 ? "text-red-400" : remaining <= 30 ? "text-yellow-400" : accentDim;
+
+  // Countdown: compute remaining from server timer, tick every second
+  useEffect(() => {
+    if (!timer || isGameOver) {
+      setRemaining(0);
+      return;
+    }
+
+    const update = () => {
+      const elapsed = Date.now() - timer.turnStartTime;
+      const left = Math.max(0, Math.ceil((timer.remainingMs - elapsed) / 1000));
+      setRemaining(left);
+    };
+
+    update(); // initial computation
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [timer, isGameOver]);
 
   return (
     <div className="absolute bottom-16 right-4 font-mono text-xs pointer-events-none select-none">
