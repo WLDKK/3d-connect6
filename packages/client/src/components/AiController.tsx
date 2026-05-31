@@ -100,7 +100,11 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      busyRef.current = false;
+      onThinking?.(false);
+    };
   }, [snapshot, aiColor, model, placeStone, onAiSource, onThinking]);
 
   return null;

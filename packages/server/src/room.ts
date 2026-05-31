@@ -23,7 +23,7 @@ interface TimerPayload {
   turnStartTime: number;
 }
 
-const TURN_TIMEOUT_MS = 300_000; // 5 minutes
+const TURN_TIMEOUT_MS = 90_000; // 90 seconds
 
 export class GameRoom extends DurableObject {
   private engine!: Connect6Engine;
@@ -377,7 +377,7 @@ export class GameRoom extends DurableObject {
     this.cleanupSocket(ws);
   }
 
-  private cleanupSocket(ws: WebSocket): void {
+  private async cleanupSocket(ws: WebSocket): Promise<void> {
     if (ws === this.playerBlack) this.playerBlack = null;
     else if (ws === this.playerWhite) this.playerWhite = null;
     else this.observers.delete(ws);
@@ -395,7 +395,7 @@ export class GameRoom extends DurableObject {
       this.readyPlayers.clear();
       this.gameStarted = false;
       this.engine = new Connect6Engine(this.engine.config);
-      this.persistState();
+      await this.persistState();
     }
 
     for (const s of this.getAllSockets()) {

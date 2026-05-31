@@ -351,13 +351,6 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
     if (!pendingReset) setWaitingReset(false);
   }, [pendingReset]);
 
-  // Dismiss ready dialog when game starts (timer received or player color assigned)
-  useEffect(() => {
-    if (timer) {
-      // Timer arriving means game has started — dismiss ready dialog
-    }
-  }, [timer]);
-
   const handleResetRequest = useCallback(() => {
     if (!roomId) {
       // Single player — direct reset

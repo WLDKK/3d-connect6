@@ -59,7 +59,8 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
   const whiteGoldRef = useRef<THREE.InstancedMesh>(null);
 
   const snapshot = useGameSnapshot();
-  const winningLine = useWinningLine();
+  const liveWinningLine = useWinningLine();
+  const winningLine = replayBoard ? [] : liveWinningLine; // suppress gold during replay
   const { transparencyEnabled } = useViewState();
   const computeOccluded = useComputeOccluded();
 

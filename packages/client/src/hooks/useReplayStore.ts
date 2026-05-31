@@ -66,14 +66,16 @@ function moveIndexToTurn(idx: number): number {
 
 /**
  * Get the next turn's end index from current viewIndex.
- * 0 → 1 (turn 0 end)
- * 1 → 3 (turn 1 end)
- * 3 → 5 (turn 2 end)
+ * viewIndex is the number of moves displayed (not a move index).
+ * 0 → 1 (after turn 0: 1 stone)
+ * 1 → 3 (after turn 1: 2 more stones)
+ * 3 → 5 (after turn 2: 2 more stones)
  */
 function nextTurnIndex(current: number, max: number): number {
   if (current === 0) return Math.min(1, max);
-  const currentTurn = moveIndexToTurn(current);
-  return Math.min(turnEndIndex(currentTurn + 1), max);
+  // current is the count of displayed moves; last displayed move is at index current-1
+  const lastMoveTurn = moveIndexToTurn(current - 1);
+  return Math.min(turnEndIndex(lastMoveTurn + 1), max);
 }
 
 /**
@@ -83,8 +85,9 @@ function nextTurnIndex(current: number, max: number): number {
 function prevTurnIndex(current: number): number {
   if (current <= 0) return 0;
   if (current === 1) return 0;
-  const currentTurn = moveIndexToTurn(current);
-  return turnEndIndex(currentTurn - 1);
+  // current is the count of displayed moves; last displayed move is at index current-1
+  const lastMoveTurn = moveIndexToTurn(current - 1);
+  return turnEndIndex(lastMoveTurn - 1);
 }
 
 /** Update total moves from game snapshot */

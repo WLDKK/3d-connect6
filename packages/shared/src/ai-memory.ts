@@ -101,7 +101,7 @@ export class AiMemory {
       board[idx] = color;
 
       // Only learn from the winner's moves
-      if (color as unknown === winnerColor as unknown) {
+      if (color === (winnerColor as unknown as Stone)) {
         const key = hashNeighborhood(board, config, move.x, move.y, move.z);
         const existing = this.data.get(key) || { wins: 0, games: 0 };
         existing.wins++;
