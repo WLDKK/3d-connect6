@@ -10,6 +10,7 @@ import {
   type PlayerAssignedPayload,
   type RoomInfoPayload,
   type StatePayload,
+  type ResetRequestPayload,
 } from "@connect6/shared";
 
 interface PlayerMeta {
@@ -31,6 +32,8 @@ export class GameRoom extends DurableObject {
   private observers: Set<WebSocket> = new Set();
   private turnStartTime: number = 0;
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
+  private resetConfirmations: Set<Player> = new Set();
+  private resetTimer: ReturnType<typeof setTimeout> | null = null;
 
   async fetch(request: Request): Promise<Response> {
     await this.ensureEngine();
@@ -173,6 +176,12 @@ export class GameRoom extends DurableObject {
       case MsgType.MOVE:
         await this.handleMove(ws, msg.payload as MovePayload);
         break;
+      case MsgType.RESET_REQUEST:
+        this.handleResetRequest(ws);
+        break;
+      case MsgType.RESET_CONFIRM:
+        this.handleResetConfirm(ws);
+        break;
       case "get_timer" as MsgType:
         // Client requesting current timer state
         this.broadcastTimer();
@@ -303,6 +312,67 @@ export class GameRoom extends DurableObject {
       });
     } else {
       // Start timer for next player's turn
+      this.startTurnTimer();
+    }
+  }
+
+  private handleResetRequest(ws: WebSocket): void {
+    const meta = ws.deserializeAttachment() as PlayerMeta | null;
+    if (!meta) return;
+
+    // Clear any previous reset state
+    this.resetConfirmations.clear();
+    if (this.resetTimer) {
+      clearTimeout(this.resetTimer);
+      this.resetTimer = null;
+    }
+
+    // Mark initiator as confirmed
+    this.resetConfirmations.add(meta.color);
+
+    // Notify all players that a reset was requested
+    this.broadcast({
+      type: MsgType.RESET_REQUEST,
+      payload: { initiator: meta.color } as ResetRequestPayload,
+    });
+
+    // Auto-cancel after 30 seconds if not both confirmed
+    this.resetTimer = setTimeout(() => {
+      this.resetConfirmations.clear();
+      this.broadcast({
+        type: MsgType.RESET_ACK,
+        payload: { success: false },
+      });
+    }, 30_000);
+  }
+
+  private handleResetConfirm(ws: WebSocket): void {
+    const meta = ws.deserializeAttachment() as PlayerMeta | null;
+    if (!meta) return;
+
+    this.resetConfirmations.add(meta.color);
+
+    // Check if both players have confirmed
+    const hasBlack = this.resetConfirmations.has(Player.BLACK);
+    const hasWhite = this.resetConfirmations.has(Player.WHITE);
+
+    if (hasBlack && hasWhite) {
+      // Both confirmed — reset the game
+      this.clearTurnTimer();
+      if (this.resetTimer) {
+        clearTimeout(this.resetTimer);
+        this.resetTimer = null;
+      }
+      this.resetConfirmations.clear();
+
+      this.engine = new Connect6Engine(this.engine.config);
+      this.persistState();
+      this.broadcastState();
+      this.broadcast({
+        type: MsgType.RESET_ACK,
+        payload: { success: true },
+      });
+      // Start fresh timer for black's first move
       this.startTurnTimer();
     }
   }

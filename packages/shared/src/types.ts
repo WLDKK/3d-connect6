@@ -62,6 +62,9 @@ export enum MsgType {
   PLAYER_ASSIGNED = "player_assigned",
   ROOM_INFO = "room_info",
   TIMER = "timer",
+  RESET_REQUEST = "reset_request",
+  RESET_CONFIRM = "reset_confirm",
+  RESET_ACK = "reset_ack",
 }
 
 export interface WsMessage<T = unknown> {
@@ -97,6 +100,16 @@ export interface TimerPayload {
   currentPlayer: Player;
   remainingMs: number;
   turnStartTime: number;
+}
+
+export interface ResetRequestPayload {
+  /** Which player initiated the reset */
+  initiator: Player;
+}
+
+export interface ResetAckPayload {
+  /** true = reset executed, false = cancelled */
+  success: boolean;
 }
 
 // ─── AI Interface Contract ───

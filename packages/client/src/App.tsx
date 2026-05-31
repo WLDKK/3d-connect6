@@ -30,7 +30,11 @@ const AI_MODEL_LABELS: Record<AiModelId, string> = {
   "glm-5.1": "GLM 5.1",
 };
 
-function HUD({ mode, aiModel, aiSource, aiThinking }: { mode: "local" | "online"; aiModel: AiModelId; aiSource: "llm" | "local" | null; aiThinking: boolean }) {
+function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
+  mode: "local" | "online"; aiModel: AiModelId;
+  aiSource: "llm" | "local" | null; aiThinking: boolean;
+  onResetRequest: () => void;
+}) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
 
@@ -40,6 +44,16 @@ function HUD({ mode, aiModel, aiSource, aiThinking }: { mode: "local" | "online"
   const winnerName = snapshot.winner === Player.BLACK ? "黑方" : snapshot.winner === Player.WHITE ? "白方" : "";
   const stoneCount = snapshot.board.reduce((n, s) => s !== 0 ? n + 1 : n, 0);
   const aiSourceLabel = aiSource === "llm" ? "☁️ LLM" : aiSource === "local" ? "💻 本地" : "";
+
+  const handleReset = () => {
+    if (mode === "local") {
+      if (window.confirm("确定要清空棋盘吗？")) {
+        reset();
+      }
+    } else {
+      onResetRequest();
+    }
+  };
 
   return (
     <div className="absolute top-4 left-4 text-cyber-accent font-mono text-sm pointer-events-none select-none">
@@ -52,9 +66,9 @@ function HUD({ mode, aiModel, aiSource, aiThinking }: { mode: "local" | "online"
           <p className="text-lg text-yellow-400 font-bold">{winnerName} 获胜！</p>
           <button
             className="mt-2 px-3 py-1 bg-cyber-grid text-cyber-accent text-xs rounded pointer-events-auto hover:bg-opacity-80"
-            onClick={reset}
+            onClick={handleReset}
           >
-            新游戏
+            {mode === "local" ? "新游戏" : "申请重置"}
           </button>
         </div>
       ) : (
@@ -64,6 +78,12 @@ function HUD({ mode, aiModel, aiSource, aiThinking }: { mode: "local" | "online"
             {aiThinking ? "AI 思考中..." : `${playerName}落子`}
             {snapshot.round > 0 && `（本回合剩余 ${2 - snapshot.stonesPlacedThisTurn} 枚）`}
           </p>
+          <button
+            className="mt-1.5 px-2 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded pointer-events-auto hover:bg-red-900/50 transition-colors"
+            onClick={handleReset}
+          >
+            清空棋盘
+          </button>
         </div>
       )}
     </div>
@@ -209,6 +229,30 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
   const [previewCoords, setPreviewCoords] = useState<{ x: number; y: number; z: number } | null>(null);
   const [aiSource, setAiSource] = useState<"llm" | "local" | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+
+  const { sendResetRequest, sendResetConfirm } = useWebSocketActions();
+  const { pendingReset } = useWebSocketState();
+
+  // Show dialog when other player requests reset
+  useEffect(() => {
+    if (pendingReset) setShowResetDialog(true);
+  }, [pendingReset]);
+
+  const handleResetRequest = useCallback(() => {
+    if (roomId) {
+      sendResetRequest();
+    }
+  }, [roomId, sendResetRequest]);
+
+  const handleResetConfirm = useCallback(() => {
+    sendResetConfirm();
+    setShowResetDialog(false);
+  }, [sendResetConfirm]);
+
+  const handleResetCancel = useCallback(() => {
+    setShowResetDialog(false);
+  }, []);
 
   return (
     <div className="w-full h-full relative bg-cyber-bg">
@@ -228,13 +272,44 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
       </Canvas>
 
-      <HUD mode={roomId ? "online" : "local"} aiModel={aiModel} aiSource={aiSource} aiThinking={aiThinking} />
+      <HUD
+        mode={roomId ? "online" : "local"}
+        aiModel={aiModel}
+        aiSource={aiSource}
+        aiThinking={aiThinking}
+        onResetRequest={handleResetRequest}
+      />
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         <ControlPanel />
         <SliceMonitor />
       </div>
       <CoordInput onPreview={setPreviewCoords} />
       {roomId && <RoomStatus roomId={roomId} />}
+
+      {/* Reset confirmation dialog (multiplayer) */}
+      {showResetDialog && (
+        <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/50">
+          <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-6 text-center">
+            <p className="text-cyber-accent font-mono text-sm mb-4">
+              对手申请清空棋盘，是否同意？
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={handleResetConfirm}
+                className="px-4 py-1.5 bg-red-900/40 text-red-400 rounded hover:bg-red-900/60 font-mono text-xs transition-colors"
+              >
+                同意重置
+              </button>
+              <button
+                onClick={handleResetCancel}
+                className="px-4 py-1.5 bg-cyber-grid text-cyber-accent/70 rounded hover:bg-cyber-grid/80 font-mono text-xs transition-colors"
+              >
+                拒绝
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
