@@ -261,7 +261,7 @@ export function RoomStatus({ roomId }: RoomStatusProps) {
   const timerColor = remaining <= 15 ? "text-red-400" : remaining <= 30 ? "text-yellow-400" : accentDim;
 
   return (
-    <div className="absolute bottom-4 right-4 font-mono text-xs pointer-events-none select-none">
+    <div className="absolute bottom-16 right-4 font-mono text-xs pointer-events-none select-none">
       <div className="bg-black/70 backdrop-blur-sm border border-cyber-grid rounded-lg px-4 py-2">
         <div className={`${accentDim} text-[10px] mb-1`}>
           房间: {roomId}

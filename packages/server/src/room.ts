@@ -384,6 +384,20 @@ export class GameRoom extends DurableObject {
 
     this.readyPlayers.delete(ws);
 
+    // If no players remain, reset the board for the next game
+    if (!this.playerBlack && !this.playerWhite) {
+      this.clearTurnTimer();
+      if (this.resetTimer) {
+        clearTimeout(this.resetTimer);
+        this.resetTimer = null;
+      }
+      this.resetConfirmations.clear();
+      this.readyPlayers.clear();
+      this.gameStarted = false;
+      this.engine = new Connect6Engine(this.engine.config);
+      this.persistState();
+    }
+
     for (const s of this.getAllSockets()) {
       this.sendRoomInfo(s);
     }
