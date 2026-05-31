@@ -15,7 +15,9 @@ import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice } fr
  * Set VITE_API_URL in .env for separate-domain deployment.
  * Defaults to current origin (works with Vite proxy in dev).
  */
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL || (location.hostname.includes("pages.dev")
+  ? "https://connect6-server.1310205058.workers.dev"
+  : "");
 const WS_BASE = API_BASE
   ? API_BASE.replace(/^http/, "ws")
   : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;

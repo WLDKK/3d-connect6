@@ -10,7 +10,9 @@ interface AiControllerProps {
 }
 
 const AI_API_TIMEOUT = 12000;
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL || (location.hostname.includes("pages.dev")
+  ? "https://connect6-server.1310205058.workers.dev"
+  : "");
 
 async function callServerAi(req: AiRequestPayload): Promise<AiResponsePayload | null> {
   try {
