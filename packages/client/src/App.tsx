@@ -556,6 +556,7 @@ export default function App() {
   }, [theme]);
 
   const handleEnterRoom = useCallback((id: string) => {
+    store.reset();
     setRoomId(id);
     setInGame(true);
     setAiColor(null);
@@ -563,9 +564,10 @@ export default function App() {
     setGameMode("normal");
     const wsUrl = `${WS_BASE}/api/room/${encodeURIComponent(id)}`;
     connect(wsUrl);
-  }, [connect]);
+  }, [connect, store]);
 
   const handleLocalPlay = useCallback((model: AiModelId, color: ColorChoice) => {
+    store.reset();
     setRoomId(null);
     setInGame(true);
     setAiModel(model);
@@ -575,21 +577,23 @@ export default function App() {
     } else {
       setAiColor(color === "black" ? Player.WHITE : Player.BLACK);
     }
-  }, []);
+  }, [store]);
 
   const handleTraining = useCallback((analyze: boolean) => {
+    store.reset();
     setRoomId(null);
     setInGame(true);
-    setAiColor(null); // no AI opponent
+    setAiColor(null);
     setAiModel("local");
     setGameMode("training");
     setTrainingAnalyze(analyze);
-  }, []);
+  }, [store]);
 
   const handleDualAi = useCallback((modelBlack: AiModelId, modelWhite: AiModelId) => {
+    store.reset();
     setRoomId(null);
     setInGame(true);
-    setAiColor(Player.WHITE); // AI plays white (AiController watches aiColor)
+    setAiColor(Player.WHITE);
     setAiModel(modelWhite);
     setGameMode("dual_ai");
     setDualAiModels({ black: modelBlack, white: modelWhite });
@@ -597,11 +601,12 @@ export default function App() {
 
   const handleLeaveRoom = useCallback(() => {
     disconnect();
+    store.reset();
     setRoomId(null);
     setInGame(false);
     setAiColor(null);
     setGameMode("normal");
-  }, [disconnect]);
+  }, [disconnect, store]);
 
   return (
     <GameStoreContext.Provider value={store}>
