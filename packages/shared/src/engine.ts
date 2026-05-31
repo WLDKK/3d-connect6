@@ -167,6 +167,40 @@ export class Connect6Engine {
     return false;
   }
 
+  /**
+   * Find the winning line that includes (x,y,z).
+   * Returns the positions of all stones in the line, or empty array if no win.
+   */
+  findWinningLine(x: number, y: number, z: number): Vec3[] {
+    const color = this.getStone(x, y, z);
+    if (color === Stone.EMPTY) return [];
+
+    const { winLength } = this.config;
+
+    for (const dir of DIRECTIONS) {
+      const forward: Vec3[] = [];
+      let cx = x + dir.x, cy = y + dir.y, cz = z + dir.z;
+      while (this.inBounds(cx, cy, cz) && this.getStone(cx, cy, cz) === color) {
+        forward.push({ x: cx, y: cy, z: cz });
+        cx += dir.x; cy += dir.y; cz += dir.z;
+      }
+
+      const reverse: Vec3[] = [];
+      cx = x - dir.x; cy = y - dir.y; cz = z - dir.z;
+      while (this.inBounds(cx, cy, cz) && this.getStone(cx, cy, cz) === color) {
+        reverse.push({ x: cx, y: cy, z: cz });
+        cx -= dir.x; cy -= dir.y; cz -= dir.z;
+      }
+
+      const total = 1 + forward.length + reverse.length;
+      if (total >= winLength) {
+        return [...reverse, { x, y, z }, ...forward];
+      }
+    }
+
+    return [];
+  }
+
   // ─── Query helpers ───
 
   /** Get all positions occupied by a given stone color */

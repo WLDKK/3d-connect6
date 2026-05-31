@@ -33,12 +33,13 @@ const AI_MODEL_LABELS: Record<AiModelId, string> = {
   "glm-5.1": "GLM 5.1",
 };
 
-function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, memoryEntries }: {
+function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, memoryEntries, dualAiModels }: {
   mode: "local" | "online"; aiModel: AiModelId;
   aiSource: "llm" | "local" | null; aiThinking: boolean;
   onResetRequest: () => void;
   gameMode: "normal" | "training" | "dual_ai";
   memoryEntries: number;
+  dualAiModels: { black: AiModelId; white: AiModelId };
 }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
@@ -91,7 +92,10 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, me
       <h1 className="text-2xl font-bold tracking-wider mb-1">3D 六子棋</h1>
       <p className={`text-[10px] ${accentMuted} mb-2`}>
         {gameMode === "training" ? "训练" : gameMode === "dual_ai" ? "AI 对抗" : mode === "local" ? "单机" : "多人"}
-        {gameMode !== "training" && ` · ${AI_MODEL_LABELS[aiModel]}`}
+        {gameMode === "dual_ai"
+          ? ` · ⚫${AI_MODEL_LABELS[dualAiModels.black]} ⚪${AI_MODEL_LABELS[dualAiModels.white]}`
+          : gameMode !== "training" && ` · ${AI_MODEL_LABELS[aiModel]}`
+        }
         {aiSourceLabel ? ` (${aiSourceLabel})` : ""}
         {" · 棋子 "}{stoneCount}
         {memoryEntries > 0 && ` · 记忆 ${memoryEntries} 条`}
@@ -287,11 +291,12 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
 }
 
 /** Game view — the full 3D scene with controls */
-function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dualAiModels }: {
+function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dualAiModels, onBack }: {
   roomId: string | null; aiColor: Player | null; aiModel: AiModelId;
   gameMode: "normal" | "training" | "dual_ai";
   trainingAnalyze: boolean;
   dualAiModels: { black: AiModelId; white: AiModelId };
+  onBack: () => void;
 }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
@@ -353,6 +358,8 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
     setShowResetDialog(false);
   }, [sendResetConfirm]);
 
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
+
   const handleResetCancel = useCallback(() => {
     setShowResetDialog(false);
   }, []);
@@ -401,6 +408,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         onResetRequest={handleResetRequest}
         gameMode={gameMode}
         memoryEntries={memoryStats.entries}
+        dualAiModels={dualAiModels}
       />
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         <ControlPanel />
@@ -409,6 +417,39 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
       </div>
       <CoordInput onPreview={setPreviewCoords} />
       {roomId && <RoomStatus roomId={roomId} />}
+
+      {/* Back button */}
+      <div className="absolute bottom-4 right-4 pointer-events-auto">
+        <button
+          onClick={() => setShowBackConfirm(true)}
+          className={`px-3 py-1.5 ${theme === "dark" ? "bg-cyber-grid/70 text-cyber-accent/70 hover:bg-cyber-grid" : "bg-gray-200/70 text-gray-600 hover:bg-gray-200"} backdrop-blur-sm border ${theme === "dark" ? "border-cyber-grid" : "border-gray-300"} rounded-lg font-mono text-xs transition-colors`}
+        >
+          ← 返回
+        </button>
+      </div>
+
+      {/* Back confirmation dialog */}
+      {showBackConfirm && (
+        <div className="absolute inset-0 flex items-center justify-center z-[100] bg-black/50">
+          <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-6 text-center pointer-events-auto">
+            <p className="text-cyber-accent font-mono text-sm mb-4">确定返回主页面吗？</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => { setShowBackConfirm(false); onBack(); }}
+                className="px-4 py-1.5 bg-red-900/40 text-red-400 rounded hover:bg-red-900/60 font-mono text-xs transition-colors"
+              >
+                确定
+              </button>
+              <button
+                onClick={() => setShowBackConfirm(false)}
+                className="px-4 py-1.5 bg-cyber-grid text-cyber-accent/70 rounded hover:bg-cyber-grid/80 font-mono text-xs transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ready dialog — shown to both players when both are in the room */}
       {showReadyDialog && (
@@ -546,6 +587,7 @@ export default function App() {
           gameMode={gameMode}
           trainingAnalyze={trainingAnalyze}
           dualAiModels={dualAiModels}
+          onBack={handleLeaveRoom}
         />
       ) : (
         <Lobby

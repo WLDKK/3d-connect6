@@ -125,6 +125,23 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
                 <span className={`${textSecondary} text-[10px] font-mono`}>AI 分析</span>
               </label>
             </div>
+            {analyze && (
+              <div>
+                <label className={`${textSecondary} text-[10px] font-mono block mb-1`}>分析用 AI 模型</label>
+                <div className="relative">
+                  <select
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value as AiModelId)}
+                    className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-2 py-1.5 pr-6 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer`}
+                  >
+                    {AI_MODELS.map(m => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                  <span className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] ${textSecondary}`}>▼</span>
+                </div>
+              </div>
+            )}
             <button
               onClick={() => onTraining(analyze)}
               className={`w-full py-2 ${theme === "dark" ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30" : "bg-purple-500/15 text-purple-700 hover:bg-purple-500/25"} rounded transition-colors font-mono text-sm`}
@@ -174,16 +191,6 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
             >
               🤖 AI 对抗（观赏模式）
             </button>
-          </div>
-
-          {/* ── Divider ── */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className={`w-full border-t ${borderColor}`} />
-            </div>
-            <div className="relative flex justify-center text-[10px]">
-              <span className={`${bgCard} px-2 ${textSecondary} font-mono`}>或 多人对战</span>
-            </div>
           </div>
 
           {/* ── 4. Multiplayer ── */}

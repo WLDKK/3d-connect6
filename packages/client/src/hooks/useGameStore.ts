@@ -9,6 +9,7 @@ type SendMoveFn = (x: number, y: number, z: number) => void;
 function createGameStore() {
   const engine = new Connect6Engine();
   let snapshot = engine.toJSON();
+  let winningLine: Vec3[] = [];
   const listeners = new Set<() => void>();
   let sendMoveFn: SendMoveFn | null = null;
 
@@ -26,14 +27,21 @@ function createGameStore() {
     /** Place a stone — in multiplayer mode sends to server, in local mode applies directly */
     placeStone(x: number, y: number, z: number): boolean {
       if (sendMoveFn) {
-        // Multiplayer: send to server, don't apply locally
         sendMoveFn(x, y, z);
         return true;
       }
-      // Local: apply directly
       const ok = engine.placeStone(x, y, z);
-      if (ok) emit();
+      if (ok) {
+        // Check for winning line
+        if (engine.state.winner !== 0) {
+          winningLine = engine.findWinningLine(x, y, z);
+        }
+        emit();
+      }
       return ok;
+    },
+    getWinningLine(): Vec3[] {
+      return winningLine;
     },
     getStone(x: number, y: number, z: number): Stone {
       return engine.getStone(x, y, z);
@@ -44,12 +52,19 @@ function createGameStore() {
     reset() {
       const newEngine = new Connect6Engine(engine.config);
       Object.assign(engine, newEngine);
+      winningLine = [];
       emit();
     },
     /** Load state from server snapshot (used in multiplayer) */
     loadState(state: SerializedState) {
       const restored = Connect6Engine.fromJSON(state);
       Object.assign(engine, restored);
+      // Try to find winning line from last move
+      winningLine = [];
+      if (state.winner !== 0 && state.moves.length > 0) {
+        const lastMove = state.moves[state.moves.length - 1];
+        winningLine = engine.findWinningLine(lastMove.x, lastMove.y, lastMove.z);
+      }
       emit();
     },
     /** Set the multiplayer move sender. Pass null to revert to local mode. */
@@ -70,6 +85,13 @@ export function useGameSnapshot(): SerializedState {
   const store = useContext(GameStoreContext);
   if (!store) throw new Error("useGameSnapshot must be inside GameStoreProvider");
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
+}
+
+/** Hook to get the winning line positions */
+export function useWinningLine(): Vec3[] {
+  const store = useContext(GameStoreContext);
+  if (!store) return [];
+  return store.getWinningLine();
 }
 
 /** Hook that returns actions (stable references, no re-render) */

@@ -1,9 +1,9 @@
 import { useRef, useLayoutEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { Stone } from "@connect6/shared";
+import { Stone, type Vec3 } from "@connect6/shared";
 import { gridToWorld, CELL_SIZE } from "./BoardGrid";
-import { useGameSnapshot } from "../hooks/useGameStore";
+import { useGameSnapshot, useWinningLine } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
 import { useComputeOccluded } from "../hooks/useOcclusion";
 
@@ -11,6 +11,7 @@ const SPHERE_RADIUS = CELL_SIZE * 0.3;
 
 const sphereGeo = new THREE.SphereGeometry(SPHERE_RADIUS, 24, 16);
 
+// Normal materials
 const blackMat = new THREE.MeshStandardMaterial({
   color: "#1a1a2e", roughness: 0.3, metalness: 0.8,
   emissive: "#0f0f23", emissiveIntensity: 0.2,
@@ -18,6 +19,16 @@ const blackMat = new THREE.MeshStandardMaterial({
 const whiteMat = new THREE.MeshStandardMaterial({
   color: "#e0e0e0", roughness: 0.2, metalness: 0.6,
   emissive: "#ffffff", emissiveIntensity: 0.1,
+});
+
+// Gold materials for winning stones
+const blackGoldMat = new THREE.MeshStandardMaterial({
+  color: "#ffd700", roughness: 0.2, metalness: 0.9,
+  emissive: "#b8860b", emissiveIntensity: 0.5,
+});
+const whiteGoldMat = new THREE.MeshStandardMaterial({
+  color: "#fffacd", roughness: 0.15, metalness: 0.8,
+  emissive: "#ffd700", emissiveIntensity: 0.4,
 });
 
 const dummy = new THREE.Object3D();
@@ -39,21 +50,33 @@ interface StonesProps {
 }
 
 export function Stones({ sizeX, sizeY, sizeZ, hoverGrid }: StonesProps) {
+  // Normal stones
   const blackRef = useRef<THREE.InstancedMesh>(null);
   const whiteRef = useRef<THREE.InstancedMesh>(null);
+  // Winning stones (gold)
+  const blackGoldRef = useRef<THREE.InstancedMesh>(null);
+  const whiteGoldRef = useRef<THREE.InstancedMesh>(null);
 
   const snapshot = useGameSnapshot();
+  const winningLine = useWinningLine();
   const { transparencyEnabled } = useViewState();
   const computeOccluded = useComputeOccluded();
 
   const maxStones = sizeX * sizeY * sizeZ;
+  const maxWin = 6; // max winning line length
+
+  // Build winning line lookup
+  const winSet = new Set<string>();
+  for (const p of winningLine) winSet.add(`${p.x},${p.y},${p.z}`);
 
   useLayoutEffect(() => {
     hideAll(blackRef.current, maxStones);
     hideAll(whiteRef.current, maxStones);
-  }, [maxStones]);
+    hideAll(blackGoldRef.current, maxWin);
+    hideAll(whiteGoldRef.current, maxWin);
+  }, [maxStones, maxWin]);
 
-  // Cache occlusion — only recompute when hoverGrid changes
+  // Cache occlusion
   const lastHoverRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const occludedRef = useRef(new Set<string>());
   if (hoverGrid !== lastHoverRef.current) {
@@ -67,9 +90,11 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid }: StonesProps) {
   useFrame(() => {
     const bRef = blackRef.current;
     const wRef = whiteRef.current;
-    if (!bRef || !wRef) return;
+    const bgRef = blackGoldRef.current;
+    const wgRef = whiteGoldRef.current;
+    if (!bRef || !wRef || !bgRef || !wgRef) return;
 
-    let bN = 0, wN = 0;
+    let bN = 0, wN = 0, bgN = 0, wgN = 0;
     const { board, config } = snapshot;
     const sx = config.sizeX, sy = config.sizeY, sz = config.sizeZ;
 
@@ -78,35 +103,51 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid }: StonesProps) {
         for (let x = 0; x < sx; x++) {
           const stone = board[z * sy * sx + y * sx + x];
           if (stone === Stone.EMPTY) continue;
-
           if (occluded.has(`${x},${y},${z}`)) continue;
 
           const [wx, wy, wz] = gridToWorld(x, y, z, sx, sy, sz);
           dummy.position.set(wx, wy, wz);
           dummy.updateMatrix();
 
+          const isWin = winSet.has(`${x},${y},${z}`);
+
           if (stone === Stone.BLACK) {
-            bRef.setMatrixAt(bN++, dummy.matrix);
+            if (isWin && bgN < maxWin) {
+              bgRef.setMatrixAt(bgN++, dummy.matrix);
+            } else {
+              bRef.setMatrixAt(bN++, dummy.matrix);
+            }
           } else {
-            wRef.setMatrixAt(wN++, dummy.matrix);
+            if (isWin && wgN < maxWin) {
+              wgRef.setMatrixAt(wgN++, dummy.matrix);
+            } else {
+              wRef.setMatrixAt(wN++, dummy.matrix);
+            }
           }
         }
       }
     }
 
+    // Hide unused instances
     dummy.position.set(0, HIDDEN_Y, 0);
     dummy.updateMatrix();
     for (let i = bN; i < maxStones; i++) bRef.setMatrixAt(i, dummy.matrix);
     for (let i = wN; i < maxStones; i++) wRef.setMatrixAt(i, dummy.matrix);
+    for (let i = bgN; i < maxWin; i++) bgRef.setMatrixAt(i, dummy.matrix);
+    for (let i = wgN; i < maxWin; i++) wgRef.setMatrixAt(i, dummy.matrix);
 
     bRef.instanceMatrix.needsUpdate = true;
     wRef.instanceMatrix.needsUpdate = true;
+    bgRef.instanceMatrix.needsUpdate = true;
+    wgRef.instanceMatrix.needsUpdate = true;
   });
 
   return (
     <>
       <instancedMesh ref={blackRef} args={[sphereGeo, blackMat, maxStones]} frustumCulled={false} />
       <instancedMesh ref={whiteRef} args={[sphereGeo, whiteMat, maxStones]} frustumCulled={false} />
+      <instancedMesh ref={blackGoldRef} args={[sphereGeo, blackGoldMat, maxWin]} frustumCulled={false} />
+      <instancedMesh ref={whiteGoldRef} args={[sphereGeo, whiteGoldMat, maxWin]} frustumCulled={false} />
     </>
   );
 }
