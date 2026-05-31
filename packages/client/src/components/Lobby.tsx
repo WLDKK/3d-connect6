@@ -25,8 +25,8 @@ interface LobbyProps {
 
 export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
   const [roomId, setRoomId] = useState("");
-  const [aiModel, setAiModel] = useState<AiModelId>("qwen3.6-plus");
-  const [colorChoice, setColorChoice] = useState<ColorChoice>("black");
+  const [aiModel, setAiModel] = useState<AiModelId>("local");
+  const [colorChoice, setColorChoice] = useState<ColorChoice>("random");
   const { status, error } = useWebSocketState();
   const { theme } = useViewState();
   const { toggleTheme } = useViewActions();
@@ -69,27 +69,33 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
             <div className="flex gap-2">
               <div className="flex-1">
                 <label className={`${textSecondary} text-[10px] font-mono block mb-1`}>AI 模型</label>
-                <select
-                  value={aiModel}
-                  onChange={(e) => setAiModel(e.target.value as AiModelId)}
-                  className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-2 py-1.5 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer`}
-                >
-                  {AI_MODELS.map(m => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value as AiModelId)}
+                    className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-2 py-1.5 pr-6 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer`}
+                  >
+                    {AI_MODELS.map(m => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                  <span className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] ${textSecondary}`}>▼</span>
+                </div>
               </div>
               <div className="flex-1">
                 <label className={`${textSecondary} text-[10px] font-mono block mb-1`}>执棋颜色</label>
-                <select
-                  value={colorChoice}
-                  onChange={(e) => setColorChoice(e.target.value as ColorChoice)}
-                  className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-2 py-1.5 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer`}
-                >
-                  {COLOR_OPTIONS.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={colorChoice}
+                    onChange={(e) => setColorChoice(e.target.value as ColorChoice)}
+                    className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-2 py-1.5 pr-6 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer`}
+                  >
+                    {COLOR_OPTIONS.map(c => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                  <span className={`absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] ${textSecondary}`}>▼</span>
+                </div>
               </div>
             </div>
 
