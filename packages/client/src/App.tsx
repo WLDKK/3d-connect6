@@ -335,7 +335,7 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
   }, [sendReady]);
 
   const { theme } = useViewState();
-  const bgColor = theme === "dark" ? "#0a0e17" : "#e8ecf1";
+  const bgColor = theme === "dark" ? "#0a0e17" : "#f5f0e6";
   const bgClass = theme === "dark" ? "bg-cyber-bg" : "bg-gray-100";
 
   return (

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useWebSocketState } from "../hooks/useWebSocket";
-import { useViewState } from "../hooks/useViewStore";
+import { useViewState, useViewActions } from "../hooks/useViewStore";
 import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
 
 /** Available AI models for the dropdown */
@@ -29,8 +29,9 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
   const [colorChoice, setColorChoice] = useState<ColorChoice>("black");
   const { status, error } = useWebSocketState();
   const { theme } = useViewState();
+  const { toggleTheme } = useViewActions();
 
-  const bgOuter = theme === "dark" ? "bg-cyber-bg" : "bg-gray-100";
+  const bgOuter = theme === "dark" ? "bg-cyber-bg" : "bg-[#f5f0e6]";
   const bgCard = theme === "dark" ? "bg-black/80" : "bg-white/90";
   const borderColor = theme === "dark" ? "border-cyber-grid" : "border-gray-300";
   const textPrimary = theme === "dark" ? "text-cyber-accent" : "text-gray-800";
@@ -45,9 +46,19 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
   return (
     <div className={`absolute inset-0 flex items-center justify-center ${bgOuter} z-50`}>
       <div className={`${bgCard} backdrop-blur-md border ${borderColor} rounded-xl p-8 w-96`}>
-        <h1 className={`text-3xl font-bold ${textPrimary} text-center mb-2 tracking-wider`}>
-          3D 六子棋
-        </h1>
+        <div className="flex justify-between items-start mb-2">
+          <div />
+          <h1 className={`text-3xl font-bold ${textPrimary} text-center tracking-wider`}>
+            3D 六子棋
+          </h1>
+          <button
+            onClick={toggleTheme}
+            className={`${textSecondary} hover:opacity-80 text-xs font-mono mt-1`}
+            title="切换主题"
+          >
+            {theme === "dark" ? "🌙" : "☀️"}
+          </button>
+        </div>
         <p className={`${textSecondary} text-xs text-center mb-6 font-mono`}>
           Connect6 · 3D 棋盘博弈
         </p>

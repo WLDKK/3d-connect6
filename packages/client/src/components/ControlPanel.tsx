@@ -21,7 +21,7 @@ export function ControlPanel() {
           onClick={toggleTheme}
           className="w-full py-1.5 rounded text-center transition-all bg-cyber-grid/50 text-gray-400 border border-transparent hover:border-cyber-grid"
         >
-          {theme === "dark" ? "☀️ 白天模式" : "🌙 黑夜模式"}
+          {theme === "dark" ? "🌙 黑夜模式" : "☀️ 白天模式"}
         </button>
 
         {/* Slice Monitor */}
