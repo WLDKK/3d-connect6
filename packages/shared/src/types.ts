@@ -61,6 +61,7 @@ export enum MsgType {
   GAME_OVER = "game_over",
   PLAYER_ASSIGNED = "player_assigned",
   ROOM_INFO = "room_info",
+  TIMER = "timer",
 }
 
 export interface WsMessage<T = unknown> {
@@ -90,6 +91,12 @@ export interface PlayerAssignedPayload {
 export interface RoomInfoPayload {
   players: { black: boolean; white: boolean };
   state: SerializedState;
+}
+
+export interface TimerPayload {
+  currentPlayer: Player;
+  remainingMs: number;
+  turnStartTime: number;
 }
 
 // ─── AI Interface Contract ───

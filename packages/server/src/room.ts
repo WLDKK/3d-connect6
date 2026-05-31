@@ -12,26 +12,30 @@ import {
   type StatePayload,
 } from "@connect6/shared";
 
-/** Player metadata attached to each WebSocket via serializeAttachment */
 interface PlayerMeta {
   color: Player.BLACK | Player.WHITE;
 }
 
-/**
- * GameRoom Durable Object — authoritative game state for one room.
- * Uses WebSocket Hibernation API for cost-efficient idle connections.
- */
+interface TimerPayload {
+  currentPlayer: Player;
+  remainingMs: number;
+  turnStartTime: number;
+}
+
+const TURN_TIMEOUT_MS = 90_000; // 90 seconds per move
+
 export class GameRoom extends DurableObject {
   private engine!: Connect6Engine;
   private playerBlack: WebSocket | null = null;
   private playerWhite: WebSocket | null = null;
   private observers: Set<WebSocket> = new Set();
+  private turnStartTime: number = 0;
+  private turnTimer: ReturnType<typeof setTimeout> | null = null;
 
   async fetch(request: Request): Promise<Response> {
     await this.ensureEngine();
 
-    const upgradeHeader = request.headers.get("Upgrade");
-    if (upgradeHeader === "websocket") {
+    if (request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
@@ -42,17 +46,15 @@ export class GameRoom extends DurableObject {
   }
 
   private handleInfoRequest(): Response {
-    const state = this.engine.toJSON();
     return Response.json({
       players: {
         black: this.playerBlack !== null,
         white: this.playerWhite !== null,
       },
-      state,
+      state: this.engine.toJSON(),
     });
   }
 
-  /** Load or create engine from DO storage */
   private async ensureEngine(): Promise<void> {
     if (this.engine) return;
     const stored = await this.ctx.storage.get<SerializedState>("gameState");
@@ -63,17 +65,8 @@ export class GameRoom extends DurableObject {
     }
   }
 
-  /** Persist current game state to DO storage */
   private async persistState(): Promise<void> {
     await this.ctx.storage.put("gameState", this.engine.toJSON());
-  }
-
-  /** Broadcast a message to all connected WebSockets */
-  private broadcast(msg: WsMessage): void {
-    const data = JSON.stringify(msg);
-    for (const ws of this.getAllSockets()) {
-      try { ws.send(data); } catch { /* dead socket */ }
-    }
   }
 
   private getAllSockets(): WebSocket[] {
@@ -84,7 +77,13 @@ export class GameRoom extends DurableObject {
     return sockets;
   }
 
-  /** Send full room info snapshot to one client */
+  private broadcast(msg: WsMessage): void {
+    const data = JSON.stringify(msg);
+    for (const ws of this.getAllSockets()) {
+      try { ws.send(data); } catch { /* dead socket */ }
+    }
+  }
+
   private sendRoomInfo(ws: WebSocket): void {
     const payload: RoomInfoPayload = {
       players: {
@@ -96,7 +95,6 @@ export class GameRoom extends DurableObject {
     ws.send(JSON.stringify({ type: MsgType.ROOM_INFO, payload }));
   }
 
-  /** Broadcast current game state to all clients */
   private broadcastState(lastMove?: { x: number; y: number; z: number }): void {
     const payload: StatePayload = {
       board: Array.from(this.engine.state.board),
@@ -107,6 +105,53 @@ export class GameRoom extends DurableObject {
       lastMove,
     };
     this.broadcast({ type: MsgType.STATE, payload });
+  }
+
+  /** Start the 90-second turn timer */
+  private startTurnTimer(): void {
+    this.clearTurnTimer();
+    this.turnStartTime = Date.now();
+
+    // Broadcast timer state to all clients
+    this.broadcastTimer();
+
+    // Set timeout for auto-forfeit
+    this.turnTimer = setTimeout(() => {
+      this.handleTimeout();
+    }, TURN_TIMEOUT_MS);
+  }
+
+  private clearTurnTimer(): void {
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
+  }
+
+  private broadcastTimer(): void {
+    const payload: TimerPayload = {
+      currentPlayer: this.engine.state.currentPlayer,
+      remainingMs: TURN_TIMEOUT_MS,
+      turnStartTime: this.turnStartTime,
+    };
+    this.broadcast({ type: "timer" as MsgType, payload });
+  }
+
+  /** Handle turn timeout — the current player loses */
+  private handleTimeout(): void {
+    if (this.engine.state.winner !== Stone.EMPTY) return;
+
+    // The current player forfeits
+    const loser = this.engine.state.currentPlayer;
+    const winner = loser === Player.BLACK ? Player.WHITE : Player.BLACK;
+    this.engine.state.winner = winner;
+
+    this.persistState();
+    this.broadcastState();
+    this.broadcast({
+      type: MsgType.GAME_OVER,
+      payload: { winner, reason: "timeout", loser },
+    });
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -128,6 +173,10 @@ export class GameRoom extends DurableObject {
       case MsgType.MOVE:
         await this.handleMove(ws, msg.payload as MovePayload);
         break;
+      case "get_timer" as MsgType:
+        // Client requesting current timer state
+        this.broadcastTimer();
+        break;
       default:
         ws.send(JSON.stringify({ type: MsgType.ERROR, payload: `Unknown type: ${msg.type}` }));
     }
@@ -138,6 +187,7 @@ export class GameRoom extends DurableObject {
     const existing = ws.deserializeAttachment() as PlayerMeta | null;
     if (existing) {
       this.sendRoomInfo(ws);
+      this.broadcastTimer();
       return;
     }
 
@@ -157,13 +207,61 @@ export class GameRoom extends DurableObject {
 
     ws.serializeAttachment({ color } as PlayerMeta);
 
+    // Send color assignment to this player
     const assignPayload: PlayerAssignedPayload = { color };
     ws.send(JSON.stringify({ type: MsgType.PLAYER_ASSIGNED, payload: assignPayload }));
 
-    // Send room info to ALL clients (so existing players know about the new join)
+    // Broadcast room info to ALL clients
     for (const s of this.getAllSockets()) {
       this.sendRoomInfo(s);
     }
+
+    // If both players are present and game hasn't started, randomize and start
+    if (this.playerBlack && this.playerWhite && this.engine.state.round === 0
+      && this.engine.state.moves.length === 0) {
+      this.randomizeAndStart();
+    }
+  }
+
+  /** Randomly assign colors when both players are in, then start the game */
+  private randomizeAndStart(): void {
+    // 50/50 chance to swap colors
+    if (Math.random() < 0.5) {
+      // Swap: current "black" becomes white, current "white" becomes black
+      const temp = this.playerBlack;
+      this.playerBlack = this.playerWhite;
+      this.playerWhite = temp;
+
+      // Update serialized attachments
+      if (this.playerBlack) {
+        this.playerBlack.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
+      }
+      if (this.playerWhite) {
+        this.playerWhite.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
+      }
+
+      // Re-notify both players of their new colors
+      if (this.playerBlack) {
+        this.playerBlack.send(JSON.stringify({
+          type: MsgType.PLAYER_ASSIGNED,
+          payload: { color: Player.BLACK } as PlayerAssignedPayload,
+        }));
+      }
+      if (this.playerWhite) {
+        this.playerWhite.send(JSON.stringify({
+          type: MsgType.PLAYER_ASSIGNED,
+          payload: { color: Player.WHITE } as PlayerAssignedPayload,
+        }));
+      }
+    }
+
+    // Send updated room info to all
+    for (const s of this.getAllSockets()) {
+      this.sendRoomInfo(s);
+    }
+
+    // Start the turn timer (Black goes first)
+    this.startTurnTimer();
   }
 
   private async handleMove(ws: WebSocket, payload: MovePayload): Promise<void> {
@@ -198,10 +296,14 @@ export class GameRoom extends DurableObject {
     this.broadcastState({ x: payload.x, y: payload.y, z: payload.z });
 
     if (this.engine.state.winner !== Stone.EMPTY) {
+      this.clearTurnTimer();
       this.broadcast({
         type: MsgType.GAME_OVER,
         payload: { winner: this.engine.state.winner },
       });
+    } else {
+      // Start timer for next player's turn
+      this.startTurnTimer();
     }
   }
 
@@ -218,7 +320,7 @@ export class GameRoom extends DurableObject {
     else if (ws === this.playerWhite) this.playerWhite = null;
     else this.observers.delete(ws);
 
-    // Notify remaining players about the disconnect
+    // Notify remaining players
     for (const s of this.getAllSockets()) {
       this.sendRoomInfo(s);
     }

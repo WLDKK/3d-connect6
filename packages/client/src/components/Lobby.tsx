@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useWebSocketState } from "../hooks/useWebSocket";
-import { Player, type AiModelId, type ColorChoice } from "@connect6/shared";
+import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
 
 /** Available AI models for the dropdown */
 const AI_MODELS: { id: AiModelId; label: string }[] = [
@@ -138,7 +138,8 @@ interface RoomStatusProps {
 }
 
 export function RoomStatus({ roomId }: RoomStatusProps) {
-  const { status, playerColor, roomInfo, error } = useWebSocketState();
+  const { status, playerColor, roomInfo, timer, error } = useWebSocketState();
+  const [remaining, setRemaining] = useState(90);
 
   const colorName = playerColor === Player.BLACK ? "黑方" : playerColor === Player.WHITE ? "白方" : "观战";
   const colorClass = playerColor === Player.BLACK ? "text-gray-300" : "text-white";
@@ -146,6 +147,23 @@ export function RoomStatus({ roomId }: RoomStatusProps) {
   const playerCount = roomInfo
     ? (roomInfo.players.black ? 1 : 0) + (roomInfo.players.white ? 1 : 0)
     : 0;
+  const isGameOver = roomInfo?.state?.winner !== Stone.EMPTY;
+  const isMyTurn = timer?.currentPlayer === playerColor;
+
+  // Countdown tick
+  useEffect(() => {
+    if (!timer || isGameOver) return;
+
+    const update = () => {
+      const elapsed = Date.now() - timer.turnStartTime;
+      const left = Math.max(0, Math.ceil((timer.remainingMs - elapsed) / 1000));
+      setRemaining(left);
+    };
+
+    update();
+    const interval = setInterval(update, 250);
+    return () => clearInterval(interval);
+  }, [timer, isGameOver]);
 
   return (
     <div className="absolute bottom-4 right-4 font-mono text-xs pointer-events-none select-none">
@@ -158,6 +176,12 @@ export function RoomStatus({ roomId }: RoomStatusProps) {
           <span className={colorClass}>{colorName}</span>
           <span className="text-cyber-accent/40">· {playerCount}/2</span>
         </div>
+        {timer && !isGameOver && (
+          <div className={`text-[11px] mt-1 font-bold ${remaining <= 15 ? "text-red-400" : remaining <= 30 ? "text-yellow-400" : "text-cyber-accent/60"}`}>
+            {isMyTurn ? "⏳" : "⏳"} {remaining}s
+            {isMyTurn && " — 你的回合"}
+          </div>
+        )}
         {error && <div className="text-red-400 text-[10px] mt-1">{error}</div>}
       </div>
     </div>

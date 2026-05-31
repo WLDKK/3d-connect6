@@ -5,6 +5,7 @@ import {
   type PlayerAssignedPayload,
   type RoomInfoPayload,
   type StatePayload,
+  type TimerPayload,
   type MovePayload,
   type SerializedState,
   Player,
@@ -17,6 +18,7 @@ interface WebSocketState {
   playerColor: Player.BLACK | Player.WHITE | null;
   roomInfo: RoomInfoPayload | null;
   lastState: StatePayload | null;
+  timer: TimerPayload | null;
   error: string | null;
 }
 
@@ -25,6 +27,7 @@ const initialState: WebSocketState = {
   playerColor: null,
   roomInfo: null,
   lastState: null,
+  timer: null,
   error: null,
 };
 
@@ -114,7 +117,10 @@ function doConnect(url: string) {
         break;
       }
       case MsgType.GAME_OVER: {
-        // State broadcast already includes winner, just log
+        break;
+      }
+      case MsgType.TIMER: {
+        setState({ timer: msg.payload as TimerPayload });
         break;
       }
     }
