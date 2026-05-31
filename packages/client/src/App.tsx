@@ -39,7 +39,13 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
   const { status } = useWebSocketState();
+  const { theme } = useViewState();
   const [showConfirm, setShowConfirm] = useState(false);
+
+  const isDark = theme === "dark";
+  const accent = isDark ? "text-cyber-accent" : "text-gray-800";
+  const accentDim = isDark ? "text-cyber-accent/60" : "text-gray-500";
+  const accentMuted = isDark ? "text-cyber-accent/40" : "text-gray-400";
 
   const isBlack = snapshot.currentPlayer === Player.BLACK;
   const playerName = isBlack ? "黑方" : "白方";
@@ -77,9 +83,9 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
   };
 
   return (
-    <div className="absolute top-4 left-4 text-cyber-accent font-mono text-sm pointer-events-none select-none">
+    <div className={`absolute top-4 left-4 ${accent} font-mono text-sm pointer-events-none select-none`}>
       <h1 className="text-2xl font-bold tracking-wider mb-1">3D 六子棋</h1>
-      <p className="text-[10px] opacity-40 mb-2">
+      <p className={`text-[10px] ${accentMuted} mb-2`}>
         {mode === "local" ? "单机" : "多人"} · {AI_MODEL_LABELS[aiModel]}{aiSourceLabel ? ` (${aiSourceLabel})` : ""} · 棋子 {stoneCount}
       </p>
       {isGameOver ? (
@@ -94,8 +100,8 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
         </div>
       ) : (
         <div>
-          <p className="text-xs opacity-60">第 {snapshot.round} 回合</p>
-          <p className={`text-sm font-bold ${isBlack ? "text-gray-300" : "text-white"}`}>
+          <p className={`text-xs ${accentDim}`}>第 {snapshot.round} 回合</p>
+          <p className={`text-sm font-bold ${isDark ? (isBlack ? "text-gray-300" : "text-white") : (isBlack ? "text-gray-700" : "text-gray-900")}`}>
             {aiThinking ? "AI 思考中..." : `${playerName}落子`}
             {snapshot.round > 0 && `（本回合剩余 ${2 - snapshot.stonesPlacedThisTurn} 枚）`}
           </p>

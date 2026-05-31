@@ -4,13 +4,32 @@ import { useGameSnapshot } from "../hooks/useGameStore";
 import { Stone } from "@connect6/shared";
 
 const CANVAS_SIZE = 200;
-const BG = "#0d1117";
-const GRID_COLOR = "#1e2a3a";
-const DOT_COLOR = "#2a3a4a";
-const BLACK_COLOR = "#1a1a2e";
-const BLACK_GLOW = "#4a90d9";
-const WHITE_COLOR = "#e0e0e0";
-const WHITE_GLOW = "#ffffff";
+
+// Theme-aware color sets
+const THEMES = {
+  dark: {
+    bg: "#0d1117",
+    grid: "#1e2a3a",
+    dot: "#2a3a4a",
+    black: "#1a1a2e",
+    blackGlow: "#4a90d9",
+    white: "#e0e0e0",
+    whiteGlow: "#ffffff",
+    text: "#888",
+    textDim: "#666",
+  },
+  light: {
+    bg: "#f5f0e6",
+    grid: "#c8bfb0",
+    dot: "#a09080",
+    black: "#1a1a2e",
+    blackGlow: "#4a90d9",
+    white: "#e0e0e0",
+    whiteGlow: "#ffffff",
+    text: "#555",
+    textDim: "#888",
+  },
+};
 
 /**
  * 2D slice monitor. Right-hand Cartesian: X right, Y back, Z up.
@@ -18,8 +37,9 @@ const WHITE_GLOW = "#ffffff";
  */
 export function SliceMonitor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { sliceEnabled, sliceAxis, sliceIndex } = useViewState();
+  const { sliceEnabled, sliceAxis, sliceIndex, theme } = useViewState();
   const snapshot = useGameSnapshot();
+  const colors = THEMES[theme];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -63,11 +83,11 @@ export function SliceMonitor() {
     const oy = margin + (avail - gridH) / 2;
 
     // Clear
-    ctx.fillStyle = BG;
+    ctx.fillStyle = colors.bg;
     ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
     // Grid lines
-    ctx.strokeStyle = GRID_COLOR;
+    ctx.strokeStyle = colors.grid;
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= dimH; i++) {
       ctx.beginPath(); ctx.moveTo(ox + i * cell, oy); ctx.lineTo(ox + i * cell, oy + gridH); ctx.stroke();
@@ -87,15 +107,15 @@ export function SliceMonitor() {
         const cy = oy + (row + 0.5) * cell;
 
         if (stone === Stone.EMPTY) {
-          ctx.fillStyle = DOT_COLOR;
+          ctx.fillStyle = colors.dot;
           ctx.beginPath(); ctx.arc(cx, cy, 1.5, 0, Math.PI * 2); ctx.fill();
           continue;
         }
 
         const isBlack = stone === Stone.BLACK;
-        ctx.shadowColor = isBlack ? BLACK_GLOW : WHITE_GLOW;
+        ctx.shadowColor = isBlack ? colors.blackGlow : colors.whiteGlow;
         ctx.shadowBlur = 4;
-        ctx.fillStyle = isBlack ? BLACK_COLOR : WHITE_COLOR;
+        ctx.fillStyle = isBlack ? colors.black : colors.white;
         ctx.beginPath(); ctx.arc(cx, cy, stoneR, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
         ctx.fillStyle = isBlack ? "rgba(74,144,217,0.3)" : "rgba(255,255,255,0.3)";
@@ -105,7 +125,7 @@ export function SliceMonitor() {
 
     // Horizontal tick labels: 0,1,...,dimH-1 left to right
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "#888";
+    ctx.fillStyle = colors.text;
     ctx.font = "9px monospace";
     ctx.textAlign = "center";
     for (let i = 0; i < dimH; i++) {
@@ -126,7 +146,7 @@ export function SliceMonitor() {
     }
 
     // Axis name labels
-    ctx.fillStyle = "#666";
+    ctx.fillStyle = colors.textDim;
     ctx.font = "bold 9px monospace";
     ctx.textAlign = "center";
     ctx.fillText(lh, ox + gridW / 2, CANVAS_SIZE - 3);

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Billboard, Text } from "@react-three/drei";
 import { CELL_SIZE, gridToWorld } from "./BoardGrid";
+import { useViewState } from "../hooks/useViewStore";
 
 interface AxisLabelsProps {
   sizeX: number;
@@ -19,8 +20,16 @@ const AXIS_SIZE = CELL_SIZE * 0.35;
  * Z axis: upward → Z=9 at grid(sizeX-1,0,sizeZ-1), label at top
  */
 export function AxisLabels({ sizeX, sizeY, sizeZ }: AxisLabelsProps) {
+  const { theme } = useViewState();
+  const isDark = theme === "dark";
+
   const tipGap = CELL_SIZE * 1.5;
   const tickGap = CELL_SIZE * 0.6;
+
+  // Theme-aware colors
+  const xColor = isDark ? "#ff4444" : "#cc2222";
+  const yColor = isDark ? "#44ff44" : "#228822";
+  const zColor = isDark ? "#4488ff" : "#2255cc";
 
   // Origin: where X=0, Y=0, Z=0 meet = board corner
   const origin = gridToWorld(sizeX - 1, 0, 0, sizeX, sizeY, sizeZ);
@@ -34,19 +43,19 @@ export function AxisLabels({ sizeX, sizeY, sizeZ }: AxisLabelsProps) {
     // X ticks — rightward from origin: grid x = sizeX-1 → 0
     for (let i = 0; i < sizeX; i++) {
       const [wx] = gridToWorld(sizeX - 1 - i, 0, 0, sizeX, sizeY, sizeZ);
-      result.push({ pos: [wx, oy, oz], text: String(i), color: "#ff4444" });
+      result.push({ pos: [wx, oy, oz], text: String(i), color: xColor });
     }
 
     // Y ticks — away from camera: grid y = 0 → sizeY-1
     for (let i = 0; i < sizeY; i++) {
       const [, wy] = gridToWorld(sizeX - 1, i, 0, sizeX, sizeY, sizeZ);
-      result.push({ pos: [ox, wy, oz], text: String(i), color: "#44ff44" });
+      result.push({ pos: [ox, wy, oz], text: String(i), color: yColor });
     }
 
     // Z ticks — upward from origin: grid z = 0 → sizeZ-1
     for (let i = 0; i < sizeZ; i++) {
       const [, , wz] = gridToWorld(sizeX - 1, 0, i, sizeX, sizeY, sizeZ);
-      result.push({ pos: [ox, oy, wz], text: String(i), color: "#4488ff" });
+      result.push({ pos: [ox, oy, wz], text: String(i), color: zColor });
     }
 
     return result;
@@ -57,9 +66,9 @@ export function AxisLabels({ sizeX, sizeY, sizeZ }: AxisLabelsProps) {
     const halfY = (sizeY - 1) * CELL_SIZE / 2;
     const halfZ = (sizeZ - 1) * CELL_SIZE / 2;
     return [
-      { pos: [halfX + tipGap, oy, oz] as [number, number, number], text: "X", color: "#ff4444" },
-      { pos: [ox, halfY + tipGap, oz] as [number, number, number], text: "Y", color: "#44ff44" },
-      { pos: [ox, oy, halfZ + tipGap] as [number, number, number], text: "Z", color: "#4488ff" },
+      { pos: [halfX + tipGap, oy, oz] as [number, number, number], text: "X", color: xColor },
+      { pos: [ox, halfY + tipGap, oz] as [number, number, number], text: "Y", color: yColor },
+      { pos: [ox, oy, halfZ + tipGap] as [number, number, number], text: "Z", color: zColor },
     ];
   }, [sizeX, sizeY, sizeZ, ox, oy, oz, tipGap]);
 
