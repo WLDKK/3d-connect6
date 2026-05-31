@@ -19,7 +19,8 @@ interface WebSocketState {
   roomInfo: RoomInfoPayload | null;
   lastState: StatePayload | null;
   timer: TimerPayload | null;
-  pendingReset: boolean; // other player requested a reset
+  pendingReset: boolean;
+  showReadyDialog: boolean;
   error: string | null;
 }
 
@@ -30,6 +31,7 @@ const initialState: WebSocketState = {
   lastState: null,
   timer: null,
   pendingReset: false,
+  showReadyDialog: false,
   error: null,
 };
 
@@ -122,7 +124,7 @@ function doConnect(url: string) {
         break;
       }
       case MsgType.TIMER: {
-        setState({ timer: msg.payload as TimerPayload });
+        setState({ timer: msg.payload as TimerPayload, showReadyDialog: false });
         break;
       }
       case MsgType.RESET_REQUEST: {
@@ -131,6 +133,10 @@ function doConnect(url: string) {
       }
       case MsgType.RESET_ACK: {
         setState({ pendingReset: false });
+        break;
+      }
+      case MsgType.GAME_START: {
+        setState({ showReadyDialog: true });
         break;
       }
     }
@@ -186,6 +192,11 @@ function sendResetConfirm() {
   ws.send(JSON.stringify({ type: MsgType.RESET_CONFIRM, payload: {} }));
 }
 
+function sendReady() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: MsgType.READY, payload: {} }));
+}
+
 /** Register callback for state updates from server */
 function setOnStateUpdate(cb: ((state: StatePayload) => void) | null) {
   onStateUpdate = cb;
@@ -209,6 +220,7 @@ export function useWebSocketActions() {
   const sendJoinRef = useRef(sendJoin);
   const sendResetRequestRef = useRef(sendResetRequest);
   const sendResetConfirmRef = useRef(sendResetConfirm);
+  const sendReadyRef = useRef(sendReady);
   const setOnStateUpdateRef = useRef(setOnStateUpdate);
   const setOnGameStartRef = useRef(setOnGameStart);
 
@@ -224,6 +236,7 @@ export function useWebSocketActions() {
     sendJoin: sendJoinRef.current,
     sendResetRequest: sendResetRequestRef.current,
     sendResetConfirm: sendResetConfirmRef.current,
+    sendReady: sendReadyRef.current,
     setOnStateUpdate: setOnStateUpdateRef.current,
     setOnGameStart: setOnGameStartRef.current,
   };

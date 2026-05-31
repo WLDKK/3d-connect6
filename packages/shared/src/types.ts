@@ -65,6 +65,8 @@ export enum MsgType {
   RESET_REQUEST = "reset_request",
   RESET_CONFIRM = "reset_confirm",
   RESET_ACK = "reset_ack",
+  READY = "ready",
+  GAME_START = "game_start",
 }
 
 export interface WsMessage<T = unknown> {

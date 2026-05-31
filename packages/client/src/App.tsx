@@ -48,6 +48,11 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest }: {
   const aiSourceLabel = aiSource === "llm" ? "☁️ LLM" : aiSource === "local" ? "💻 本地" : "";
 
   const handleResetClick = () => {
+    // Game over in multiplayer — server resets directly, no confirmation needed
+    if (isGameOver && mode === "online") {
+      onResetRequest();
+      return;
+    }
     setShowConfirm(true);
   };
 
@@ -268,14 +273,18 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
 
 /** Game view — the full 3D scene with controls */
 function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiColor: Player | null; aiModel: AiModelId }) {
+  const snapshot = useGameSnapshot();
+  const { reset } = useGameActions();
   const [previewCoords, setPreviewCoords] = useState<{ x: number; y: number; z: number } | null>(null);
   const [aiSource, setAiSource] = useState<"llm" | "local" | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [waitingReset, setWaitingReset] = useState(false);
 
-  const { sendResetRequest, sendResetConfirm } = useWebSocketActions();
-  const { pendingReset } = useWebSocketState();
+  const { sendResetRequest, sendResetConfirm, sendReady } = useWebSocketActions();
+  const { pendingReset, showReadyDialog, timer } = useWebSocketState();
+
+  const isGameOver = snapshot.winner !== Stone.EMPTY;
 
   // Show dialog when other player requests reset
   useEffect(() => {
@@ -287,12 +296,29 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
     if (!pendingReset) setWaitingReset(false);
   }, [pendingReset]);
 
-  const handleResetRequest = useCallback(() => {
-    if (roomId) {
-      sendResetRequest();
-      setWaitingReset(true); // Show "waiting for opponent" to initiator
+  // Dismiss ready dialog when game starts (timer received or player color assigned)
+  useEffect(() => {
+    if (timer) {
+      // Timer arriving means game has started — dismiss ready dialog
     }
-  }, [roomId, sendResetRequest]);
+  }, [timer]);
+
+  const handleResetRequest = useCallback(() => {
+    if (!roomId) {
+      // Single player — direct reset
+      reset();
+      return;
+    }
+    // Multiplayer
+    if (isGameOver) {
+      // Game over — send request, server resets directly (no confirmation needed)
+      sendResetRequest();
+    } else {
+      // Game in progress — need opponent confirmation
+      sendResetRequest();
+      setWaitingReset(true);
+    }
+  }, [roomId, isGameOver, sendResetRequest, reset]);
 
   const handleResetConfirm = useCallback(() => {
     sendResetConfirm();
@@ -302,6 +328,10 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
   const handleResetCancel = useCallback(() => {
     setShowResetDialog(false);
   }, []);
+
+  const handleReady = useCallback(() => {
+    sendReady();
+  }, [sendReady]);
 
   return (
     <div className="w-full h-full relative bg-cyber-bg">
@@ -334,6 +364,22 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
       </div>
       <CoordInput onPreview={setPreviewCoords} />
       {roomId && <RoomStatus roomId={roomId} />}
+
+      {/* Ready dialog — shown to both players when both are in the room */}
+      {showReadyDialog && (
+        <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/60">
+          <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-8 text-center pointer-events-auto">
+            <p className="text-cyber-accent font-mono text-lg mb-2">双方已就位</p>
+            <p className="text-cyber-accent/50 font-mono text-xs mb-6">点击准备开始游戏</p>
+            <button
+              onClick={handleReady}
+              className="px-8 py-2 bg-cyber-accent/20 text-cyber-accent rounded-lg hover:bg-cyber-accent/30 font-mono text-sm transition-colors"
+            >
+              准备开始
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Reset confirmation dialog (shown to opponent only) */}
       {showResetDialog && (
