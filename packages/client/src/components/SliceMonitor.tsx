@@ -58,7 +58,8 @@ export function SliceMonitor() {
     //                       Z=0 bottom(gz=0), Z=9 top (gz=9)  → gz = Sz-1-row (canvas row 0 = top)
     const toGrid = (col: number, row: number) => {
       if (sliceAxis === "z") {
-        return { gx: Sx - 1 - col, gy: row, gz: sliceIndex };
+        // X=0 right (gx=Sx-1-col), Y=0 bottom (gy=Sy-1-row), Z=sliceIndex
+        return { gx: Sx - 1 - col, gy: Sy - 1 - row, gz: sliceIndex };
       } else if (sliceAxis === "x") {
         return { gx: Sx - 1 - sliceIndex, gy: col, gz: Sz - 1 - row };
       } else {
