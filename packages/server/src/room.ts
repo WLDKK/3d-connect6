@@ -318,11 +318,14 @@ export class GameRoom extends DurableObject {
     // Mark initiator as confirmed
     this.resetConfirmations.add(meta.color);
 
-    // Notify all players that a reset was requested
-    this.broadcast({
-      type: MsgType.RESET_REQUEST,
-      payload: { initiator: meta.color } as ResetRequestPayload,
-    });
+    // Notify ONLY the opponent (not the initiator)
+    const opponent = meta.color === Player.BLACK ? this.playerWhite : this.playerBlack;
+    if (opponent) {
+      opponent.send(JSON.stringify({
+        type: MsgType.RESET_REQUEST,
+        payload: { initiator: meta.color } as ResetRequestPayload,
+      }));
+    }
 
     // Auto-cancel after 30 seconds if not both confirmed
     this.resetTimer = setTimeout(() => {

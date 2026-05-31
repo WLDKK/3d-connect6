@@ -272,6 +272,7 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
   const [aiSource, setAiSource] = useState<"llm" | "local" | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [waitingReset, setWaitingReset] = useState(false);
 
   const { sendResetRequest, sendResetConfirm } = useWebSocketActions();
   const { pendingReset } = useWebSocketState();
@@ -281,9 +282,15 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
     if (pendingReset) setShowResetDialog(true);
   }, [pendingReset]);
 
+  // Clear waiting state when reset completes
+  useEffect(() => {
+    if (!pendingReset) setWaitingReset(false);
+  }, [pendingReset]);
+
   const handleResetRequest = useCallback(() => {
     if (roomId) {
       sendResetRequest();
+      setWaitingReset(true); // Show "waiting for opponent" to initiator
     }
   }, [roomId, sendResetRequest]);
 
@@ -328,10 +335,10 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
       <CoordInput onPreview={setPreviewCoords} />
       {roomId && <RoomStatus roomId={roomId} />}
 
-      {/* Reset confirmation dialog (multiplayer) */}
+      {/* Reset confirmation dialog (shown to opponent only) */}
       {showResetDialog && (
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/50">
-          <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-6 text-center">
+          <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-6 text-center pointer-events-auto">
             <p className="text-cyber-accent font-mono text-sm mb-4">
               对手申请清空棋盘，是否同意？
             </p>
@@ -349,6 +356,23 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
                 拒绝
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Waiting for opponent to confirm reset (shown to initiator) */}
+      {waitingReset && (
+        <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/50">
+          <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-6 text-center pointer-events-auto">
+            <p className="text-cyber-accent font-mono text-sm mb-4">
+              已发送重置申请，等待对手确认...
+            </p>
+            <button
+              onClick={() => setWaitingReset(false)}
+              className="px-4 py-1.5 bg-cyber-grid text-cyber-accent/70 rounded hover:bg-cyber-grid/80 font-mono text-xs transition-colors"
+            >
+              取消
+            </button>
           </div>
         </div>
       )}
