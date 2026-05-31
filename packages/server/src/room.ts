@@ -200,71 +200,59 @@ export class GameRoom extends DurableObject {
       return;
     }
 
-    // Assign player color
-    let color: Player.BLACK | Player.WHITE;
+    // Assign to the first available slot
     if (!this.playerBlack) {
       this.playerBlack = ws;
-      color = Player.BLACK;
     } else if (!this.playerWhite) {
       this.playerWhite = ws;
-      color = Player.WHITE;
     } else {
       this.observers.add(ws);
       this.sendRoomInfo(ws);
       return;
     }
 
-    ws.serializeAttachment({ color } as PlayerMeta);
-
-    // Send color assignment to this player
-    const assignPayload: PlayerAssignedPayload = { color };
-    ws.send(JSON.stringify({ type: MsgType.PLAYER_ASSIGNED, payload: assignPayload }));
-
-    // Broadcast room info to ALL clients
-    for (const s of this.getAllSockets()) {
-      this.sendRoomInfo(s);
-    }
-
-    // If both players are present and game hasn't started, randomize and start
-    if (this.playerBlack && this.playerWhite && this.engine.state.round === 0
+    // If both slots filled and game hasn't started, randomize colors
+    if (this.playerBlack && this.playerWhite
+      && this.engine.state.round === 0
       && this.engine.state.moves.length === 0) {
       this.randomizeAndStart();
+    } else {
+      // Only one player so far — send preliminary info
+      this.sendRoomInfo(ws);
     }
   }
 
-  /** Randomly assign colors when both players are in, then start the game */
+  /** Randomly assign colors, notify both players, start timer */
   private randomizeAndStart(): void {
-    // 50/50 chance to swap colors
+    // Randomly decide who is black
+    let blackWs: WebSocket, whiteWs: WebSocket;
     if (Math.random() < 0.5) {
-      // Swap: current "black" becomes white, current "white" becomes black
-      const temp = this.playerBlack;
-      this.playerBlack = this.playerWhite;
-      this.playerWhite = temp;
-
-      // Update serialized attachments
-      if (this.playerBlack) {
-        this.playerBlack.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
-      }
-      if (this.playerWhite) {
-        this.playerWhite.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
-      }
-
-      // Re-notify both players of their new colors
-      if (this.playerBlack) {
-        this.playerBlack.send(JSON.stringify({
-          type: MsgType.PLAYER_ASSIGNED,
-          payload: { color: Player.BLACK } as PlayerAssignedPayload,
-        }));
-      }
-      if (this.playerWhite) {
-        this.playerWhite.send(JSON.stringify({
-          type: MsgType.PLAYER_ASSIGNED,
-          payload: { color: Player.WHITE } as PlayerAssignedPayload,
-        }));
-      }
+      blackWs = this.playerBlack!;
+      whiteWs = this.playerWhite!;
+    } else {
+      blackWs = this.playerWhite!;
+      whiteWs = this.playerBlack!;
     }
 
-    // Send updated room info to all
+    // Update slots to match the random assignment
+    this.playerBlack = blackWs;
+    this.playerWhite = whiteWs;
+
+    // Persist color on each socket
+    blackWs.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
+    whiteWs.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
+
+    // Send definitive color assignment to each player
+    blackWs.send(JSON.stringify({
+      type: MsgType.PLAYER_ASSIGNED,
+      payload: { color: Player.BLACK } as PlayerAssignedPayload,
+    }));
+    whiteWs.send(JSON.stringify({
+      type: MsgType.PLAYER_ASSIGNED,
+      payload: { color: Player.WHITE } as PlayerAssignedPayload,
+    }));
+
+    // Broadcast updated room info to all
     for (const s of this.getAllSockets()) {
       this.sendRoomInfo(s);
     }
