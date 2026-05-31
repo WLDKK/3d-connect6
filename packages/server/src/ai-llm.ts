@@ -107,82 +107,122 @@ function buildPrompts(req: AiRequestPayload) {
   const oppName = aiColor === Player.BLACK ? "White (O)" : "Black (X)";
   const boardText = buildBoardText(board, sx, sy, sz);
 
-  // Count stones for context
   let blackCount = 0, whiteCount = 0;
   for (const s of board) {
     if (s === Stone.BLACK) blackCount++;
     if (s === Stone.WHITE) whiteCount++;
   }
 
-  // Find threatening patterns for strategic context
-  const threats = findThreats(board, config, aiColor as unknown as Stone);
+  const analysis = analyzePosition(board, config, aiColor as unknown as Stone);
 
-  const system = `You are an expert Connect6 AI player on a 3D board of ${sx}×${sy}×${sz}.
-You play as ${colorName} against ${oppName}.
+  const system = `You are a world-class Connect6 AI. Board: ${sx}×${sy}×${sz} (3D). You are ${colorName}.
 
-RULES:
-- The board is 3D: coordinates are (x, y, z), each ranging 0 to ${sx - 1}.
-- First move (round 0): Black places 1 stone.
-- After round 0: each player places 2 stones per turn.
-- WIN: first to get ${winLength} stones in a straight line wins.
-- Lines can be: axis-aligned (X/Y/Z), face diagonal (2D diagonal on any face), or space diagonal (3D diagonal).
-- You must place on EMPTY cells only.
+═══ RULES ═══
+- 3D grid: (x, y, z), each 0..${sx - 1}.
+- Round 0: Black places 1 stone. All later rounds: current player places 2 stones.
+- WIN: ${winLength} in a straight line (any of 13 directions: 3 axes + 6 face diagonals + 4 space diagonals).
+- Place only on empty cells (".").
+- Lines extend in ALL 3 dimensions — don't forget Z-axis diagonals!
 
-STRATEGY (prioritized):
-1. WIN: If you can complete ${winLength} in a row, do it immediately.
-2. BLOCK: If opponent has ${winLength - 1} in a row with both ends open, you MUST block one end.
-3. DOUBLE THREAT: Create two lines of ${winLength - 1}+ simultaneously — opponent can't block both.
-4. EXTEND: Build your own lines toward ${winLength}. Center positions are more valuable.
-5. NEVER place next to your own stones if it doesn't extend a meaningful line.
+═══ LINE TYPES ═══
+- "Open-N": N same-color stones in a row, BOTH ends empty → unstoppable if N ≥ ${winLength - 1} with 2 stones/turn.
+- "Half-open-N": N stones, one end blocked → can be blocked.
+- "Closed": both ends blocked → dead line, ignore.
 
-You are a GRANDMASTER. Think carefully about which move creates the most threats.
-Reply with ONLY the coordinate(s). Format: (x, y, z) or (x1,y1,z1) (x2,y2,z2) for 2 stones.
-No explanation. Just coordinates.`;
+═══ STRATEGY (Connect6 is NOT Go — defense alone loses!) ═══
 
-  const user = `Board (${sx}×${sy}×${sz}), you are ${colorName}. Place ${stonesToPlace} stone(s).
-${blackCount} black, ${whiteCount} white on board.
+Priority 1 — WIN NOW:
+  If you can complete ${winLength} in a row, do it. No discussion.
+
+Priority 2 — BLOCK UNSTOPPABLE THREATS:
+  If opponent has an Open-${winLength - 1}, you MUST block one end this turn.
+  If opponent has TWO Open-${winLength - 1}s, you can only block one → you're losing, try to create your own counter-threat.
+
+Priority 3 — CREATE DOUBLE THREATS (the key to winning):
+  Place your 2 stones to create TWO separate Open-${winLength - 1} lines simultaneously.
+  Opponent can block only one per turn → you win next turn.
+  This is the PRIMARY winning mechanism in Connect6.
+
+Priority 4 — BUILD OPEN LINES:
+  An Open-4 (4 in a row, both ends empty) is a winning threat — opponent MUST respond.
+  An Open-3 is strong — grows to Open-4 if unblocked.
+  Prioritize lines that are OPEN over half-open.
+
+Priority 5 — CONTROL THE CENTER:
+  Center cells (x≈${Math.floor(sx / 2)}, y≈${Math.floor(sy / 2)}, z≈${Math.floor(sz / 2)}) participate in more line directions.
+  Edge/corner cells are weaker — fewer directions to build lines.
+
+Priority 6 — USE BOTH STONES WISELY:
+  With 2 stones per turn, you can:
+  a) Extend one line (e.g., turn Open-3 into Open-5)
+  b) Create two separate threats (double threat — best)
+  c) Block one threat + build your own line
+  NEVER waste a stone on a dead-end position.
+
+═══ WHAT TO AVOID ═══
+- Placing isolated stones far from any line — wastes a turn.
+- Extending a half-open line when you could build a new open line.
+- Ignoring Z-axis lines — the board is 3D, diagonal through layers is powerful.
+- Defensive-only play — you MUST attack, 2 stones/turn means pure defense loses.
+
+═══ FORMAT ═══
+Reply with ONLY coordinates: (x,y,z) for 1 stone, or (x1,y1,z1) (x2,y2,z2) for 2 stones.
+Nothing else.`;
+
+  const user = `Board state (X=Black, O=White, .=empty). You are ${colorName}, place ${stonesToPlace} stone(s).
+Black: ${blackCount} stones, White: ${whiteCount} stones.
 
 ${boardText}
-${threats ? `\n⚠️ Threats: ${threats}` : ""}
+${analysis}
 
-Your best move (coordinates only):`;
+Think step by step: What are the biggest threats? What double-threats can you create?
+Your move (coordinates only):`;
 
   return { system, user };
 }
 
 /**
- * Find threatening patterns for strategic context.
- * Returns a human-readable string of immediate threats.
+ * Analyze the position and return strategic context for the LLM.
  */
-function findThreats(board: number[], config: BoardConfig, aiStone: Stone): string {
+function analyzePosition(board: number[], config: BoardConfig, aiStone: Stone): string {
   const { sizeX: sx, sizeY: sy, sizeZ: sz, winLength } = config;
   const oppStone = aiStone === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
-  const threats: string[] = [];
+  const lines: string[] = [];
 
-  // Check all cells for high-value patterns
+  let myWins = 0, oppWins = 0;
+  let myOpen5 = 0, oppOpen5 = 0;
+  let myOpen4 = 0, oppOpen4 = 0;
+
   for (let z = 0; z < sz; z++) {
     for (let y = 0; y < sy; y++) {
       for (let x = 0; x < sx; x++) {
-        const stone = board[z * sy * sx + y * sx + x] as Stone;
-        if (stone !== Stone.EMPTY) continue;
+        if (board[z * sy * sx + y * sx + x] !== Stone.EMPTY) continue;
 
-        // Check if opponent placing here would create a threat
+        const myScore = scoreCell(board, config, x, y, z, aiStone);
         const oppScore = scoreCell(board, config, x, y, z, oppStone);
-        const aiScore = scoreCell(board, config, x, y, z, aiStone);
 
-        if (oppScore >= winLength - 1) {
-          threats.push(`Opponent can reach ${oppScore} at (${x},${y},${z}) — BLOCK THIS!`);
-        }
-        if (aiScore >= winLength - 1) {
-          threats.push(`You can reach ${aiScore} at (${x},${y},${z}) — TAKE THIS!`);
-        }
+        if (myScore >= winLength) myWins++;
+        if (oppScore >= winLength) oppWins++;
+        if (myScore === winLength - 1) myOpen5++;
+        if (oppScore === winLength - 1) oppOpen5++;
+        if (myScore === winLength - 2) myOpen4++;
+        if (oppScore === winLength - 2) oppOpen4++;
       }
     }
   }
 
-  // Deduplicate and limit
-  const unique = [...new Set(threats)].slice(0, 5);
-  return unique.length > 0 ? unique.join("; ") : "";
+  if (oppWins > 0) lines.push(`🚨 OPPONENT CAN WIN! ${oppWins} winning move(s) — you MUST block!`);
+  if (myWins > 0) lines.push(`✅ YOU CAN WIN! ${myWins} winning move(s) — take it!`);
+  if (oppOpen5 > 0) lines.push(`⚠️ Opponent has ${oppOpen5} Open-${winLength - 1} threat(s) — block urgently.`);
+  if (myOpen5 > 0) lines.push(`🎯 You have ${myOpen5} Open-${winLength - 1} threat(s) — press the advantage.`);
+  if (myOpen4 > 1) lines.push(`💪 Multiple Open-${winLength - 2} — look for double-threat opportunities.`);
+  if (oppOpen4 > 1) lines.push(`🛡️ Opponent has ${oppOpen4} Open-${winLength - 2} — watch for their double threats.`);
+
+  if (lines.length === 0) {
+    lines.push("📋 No immediate threats. Focus on building open lines toward the center.");
+  }
+
+  return "\n" + lines.join("\n");
 }
 
 /** Call using OpenAI-compatible protocol */
