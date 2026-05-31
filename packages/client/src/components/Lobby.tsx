@@ -132,13 +132,10 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
           )}
         </div>
 
-        <div className={`${textSecondary} text-[10px] text-center mt-6 font-mono leading-relaxed space-y-1`}>
-          <p>
-            <a href="https://github.com/WLDKK/3d-connect6/blob/main/RULES.md" target="_blank" rel="noopener" className={`${textSecondary} hover:opacity-80 underline`}>📖 游戏规则</a>
-            {" · "}
-            <a href="https://github.com/WLDKK/3d-connect6" target="_blank" rel="noopener" className={`${textSecondary} hover:opacity-80 underline`}>GitHub</a>
-          </p>
-          <p>多人对战需在另一个终端运行 <span className={textSecondary}>npm run dev:server</span></p>
+        <div className={`${textSecondary} text-[10px] text-center mt-6 font-mono`}>
+          <a href="https://github.com/WLDKK/3d-connect6/blob/main/RULES.md" target="_blank" rel="noopener" className={`${textSecondary} hover:opacity-80 underline`}>📖 游戏规则</a>
+          {" · "}
+          <a href="https://github.com/WLDKK/3d-connect6" target="_blank" rel="noopener" className={`${textSecondary} hover:opacity-80 underline`}>GitHub</a>
         </div>
       </div>
     </div>
