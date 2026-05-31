@@ -7,6 +7,7 @@ import { SliceMonitor } from "./components/SliceMonitor";
 import { Lobby, RoomStatus } from "./components/Lobby";
 import { GameStoreContext, useCreateGameStore, useGameSnapshot, useGameActions } from "./hooks/useGameStore";
 import { useWebSocketState, useWebSocketActions } from "./hooks/useWebSocket";
+import { useViewState } from "./hooks/useViewStore";
 import { AiController } from "./components/AiController";
 import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice } from "@connect6/shared";
 
@@ -333,8 +334,12 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
     sendReady();
   }, [sendReady]);
 
+  const { theme } = useViewState();
+  const bgColor = theme === "dark" ? "#0a0e17" : "#e8ecf1";
+  const bgClass = theme === "dark" ? "bg-cyber-bg" : "bg-gray-100";
+
   return (
-    <div className="w-full h-full relative bg-cyber-bg">
+    <div className={`w-full h-full relative ${bgClass}`}>
       {roomId && <MultiplayerSync roomId={roomId} />}
       {aiColor && <AiController aiColor={aiColor} model={aiModel} onAiSource={setAiSource} onThinking={setAiThinking} />}
 
@@ -343,8 +348,8 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
         gl={{ antialias: true, alpha: false }}
         dpr={[1, 2]}
       >
-        <color attach="background" args={["#0a0e17"]} />
-        <fog attach="fog" args={["#0a0e17", 25, 60]} />
+        <color attach="background" args={[bgColor]} />
+        <fog attach="fog" args={[bgColor, 25, 60]} />
         <Suspense fallback={null}>
           <GameScene previewCoords={previewCoords} />
         </Suspense>
@@ -428,11 +433,17 @@ function GameContent({ roomId, aiColor, aiModel }: { roomId: string | null; aiCo
 
 export default function App() {
   const store = useCreateGameStore();
+  const { theme } = useViewState();
   const [roomId, setRoomId] = useState<string | null>(null);
   const [inGame, setInGame] = useState(false);
   const [aiColor, setAiColor] = useState<Player | null>(null);
   const [aiModel, setAiModel] = useState<AiModelId>("local");
   const { connect, disconnect } = useWebSocketActions();
+
+  // Apply theme to root element
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   const handleEnterRoom = useCallback((id: string) => {
     setRoomId(id);

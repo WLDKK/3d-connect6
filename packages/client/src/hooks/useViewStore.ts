@@ -5,6 +5,7 @@ export interface ViewState {
   sliceEnabled: boolean;
   sliceAxis: "x" | "y" | "z";
   sliceIndex: number;
+  theme: "dark" | "light";
 }
 
 const initialState: ViewState = {
@@ -12,6 +13,7 @@ const initialState: ViewState = {
   sliceEnabled: false,
   sliceAxis: "z",
   sliceIndex: 0,
+  theme: "dark",
 };
 
 let state: ViewState = { ...initialState };
@@ -56,5 +58,9 @@ export function useViewActions() {
     setState({ sliceIndex: idx });
   }, []);
 
-  return { toggleTransparency, toggleSliceEnabled, setSliceAxis, setSliceIndex };
+  const toggleTheme = useCallback(() => {
+    setState({ theme: state.theme === "dark" ? "light" : "dark" });
+  }, []);
+
+  return { toggleTransparency, toggleSliceEnabled, setSliceAxis, setSliceIndex, toggleTheme };
 }

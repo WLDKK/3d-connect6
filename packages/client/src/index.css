@@ -10,3 +10,12 @@ body {
   background: #0a0e17;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
+
+/* Light theme overrides */
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="light"] body {
+  background: #e8ecf1;
+}

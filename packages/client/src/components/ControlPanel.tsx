@@ -2,8 +2,8 @@ import { useViewState, useViewActions } from "../hooks/useViewStore";
 import { useGameSnapshot } from "../hooks/useGameStore";
 
 export function ControlPanel() {
-  const { transparencyEnabled, sliceEnabled, sliceAxis, sliceIndex } = useViewState();
-  const { toggleTransparency, toggleSliceEnabled, setSliceAxis, setSliceIndex } = useViewActions();
+  const { transparencyEnabled, sliceEnabled, sliceAxis, sliceIndex, theme } = useViewState();
+  const { toggleTransparency, toggleSliceEnabled, setSliceAxis, setSliceIndex, toggleTheme } = useViewActions();
   const snapshot = useGameSnapshot();
   const { sizeX, sizeY, sizeZ } = snapshot.config;
 
@@ -15,6 +15,14 @@ export function ControlPanel() {
         <h2 className="text-cyber-accent text-sm font-bold tracking-wider border-b border-cyber-grid pb-2">
           视图控制
         </h2>
+
+        {/* Theme */}
+        <button
+          onClick={toggleTheme}
+          className="w-full py-1.5 rounded text-center transition-all bg-cyber-grid/50 text-gray-400 border border-transparent hover:border-cyber-grid"
+        >
+          {theme === "dark" ? "☀️ 白天模式" : "🌙 黑夜模式"}
+        </button>
 
         {/* Slice Monitor */}
         <div className="space-y-1">

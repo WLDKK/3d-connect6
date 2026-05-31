@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useWebSocketState } from "../hooks/useWebSocket";
+import { useViewState } from "../hooks/useViewStore";
 import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
 
 /** Available AI models for the dropdown */
@@ -27,6 +28,13 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
   const [aiModel, setAiModel] = useState<AiModelId>("qwen3.6-plus");
   const [colorChoice, setColorChoice] = useState<ColorChoice>("black");
   const { status, error } = useWebSocketState();
+  const { theme } = useViewState();
+
+  const bgOuter = theme === "dark" ? "bg-cyber-bg" : "bg-gray-100";
+  const bgCard = theme === "dark" ? "bg-black/80" : "bg-white/90";
+  const borderColor = theme === "dark" ? "border-cyber-grid" : "border-gray-300";
+  const textPrimary = theme === "dark" ? "text-cyber-accent" : "text-gray-800";
+  const textSecondary = theme === "dark" ? "text-cyber-accent/50" : "text-gray-500";
 
   const handleSubmit = useCallback(() => {
     const id = roomId.trim();
@@ -35,12 +43,12 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
   }, [roomId, onEnterRoom]);
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-cyber-bg z-50">
-      <div className="bg-black/80 backdrop-blur-md border border-cyber-grid rounded-xl p-8 w-96">
-        <h1 className="text-3xl font-bold text-cyber-accent text-center mb-2 tracking-wider">
+    <div className={`absolute inset-0 flex items-center justify-center ${bgOuter} z-50`}>
+      <div className={`${bgCard} backdrop-blur-md border ${borderColor} rounded-xl p-8 w-96`}>
+        <h1 className={`text-3xl font-bold ${textPrimary} text-center mb-2 tracking-wider`}>
           3D 六子棋
         </h1>
-        <p className="text-cyber-accent/50 text-xs text-center mb-6 font-mono">
+        <p className={`${textSecondary} text-xs text-center mb-6 font-mono`}>
           Connect6 · 3D 棋盘博弈
         </p>
 
@@ -49,11 +57,11 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
           <div className="space-y-3">
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="text-cyber-accent/70 text-[10px] font-mono block mb-1">AI 模型</label>
+                <label className={`${textSecondary} text-[10px] font-mono block mb-1`}>AI 模型</label>
                 <select
                   value={aiModel}
                   onChange={(e) => setAiModel(e.target.value as AiModelId)}
-                  className="w-full bg-cyber-grid/50 text-white px-2 py-1.5 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer"
+                  className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-2 py-1.5 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer`}
                 >
                   {AI_MODELS.map(m => (
                     <option key={m.id} value={m.id}>{m.label}</option>
@@ -61,11 +69,11 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
                 </select>
               </div>
               <div className="flex-1">
-                <label className="text-cyber-accent/70 text-[10px] font-mono block mb-1">执棋颜色</label>
+                <label className={`${textSecondary} text-[10px] font-mono block mb-1`}>执棋颜色</label>
                 <select
                   value={colorChoice}
                   onChange={(e) => setColorChoice(e.target.value as ColorChoice)}
-                  className="w-full bg-cyber-grid/50 text-white px-2 py-1.5 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer"
+                  className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-2 py-1.5 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-xs appearance-none cursor-pointer`}
                 >
                   {COLOR_OPTIONS.map(c => (
                     <option key={c.value} value={c.value}>{c.label}</option>
@@ -76,7 +84,7 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
 
             <button
               onClick={() => onLocalPlay(aiModel, colorChoice)}
-              className="w-full py-2.5 bg-cyber-accent/20 text-cyber-accent rounded hover:bg-cyber-accent/30 transition-colors font-mono text-sm"
+              className={`w-full py-2.5 ${theme === "dark" ? "bg-cyber-accent/20 text-cyber-accent hover:bg-cyber-accent/30" : "bg-blue-500/20 text-blue-700 hover:bg-blue-500/30"} rounded transition-colors font-mono text-sm`}
             >
               单机对弈
             </button>
@@ -85,16 +93,16 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
           {/* ── Divider ── */}
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-cyber-grid/50" />
+              <div className={`w-full border-t ${borderColor}`} />
             </div>
             <div className="relative flex justify-center text-[10px]">
-              <span className="bg-black/80 px-2 text-cyber-accent/30 font-mono">或 多人对战</span>
+              <span className={`${bgCard} px-2 ${textSecondary} font-mono`}>或 多人对战</span>
             </div>
           </div>
 
           {/* ── Multiplayer section ── */}
           <div>
-            <label className="text-cyber-accent/70 text-xs font-mono block mb-1">
+            <label className={`${textSecondary} text-xs font-mono block mb-1`}>
               房间名称
             </label>
             <input
@@ -103,14 +111,14 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
               onChange={(e) => setRoomId(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               placeholder="输入房间名，如 room-1"
-              className="w-full bg-cyber-grid/50 text-white px-4 py-2 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-sm"
+              className={`w-full ${theme === "dark" ? "bg-cyber-grid/50 text-white" : "bg-gray-100 text-gray-800"} px-4 py-2 rounded outline-none border border-transparent focus:border-cyber-accent font-mono text-sm`}
             />
           </div>
 
           <button
             onClick={handleSubmit}
             disabled={!roomId.trim() || status === "connecting"}
-            className="w-full py-2 bg-cyber-accent/10 text-cyber-accent/70 rounded hover:bg-cyber-accent/20 transition-colors font-mono text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`w-full py-2 ${theme === "dark" ? "bg-cyber-accent/10 text-cyber-accent/70 hover:bg-cyber-accent/20" : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"} rounded transition-colors font-mono text-sm disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             {status === "connecting" ? "连接中..." : "加入房间"}
           </button>
@@ -124,13 +132,13 @@ export function Lobby({ onEnterRoom, onLocalPlay }: LobbyProps) {
           )}
         </div>
 
-        <div className="text-cyber-accent/30 text-[10px] text-center mt-6 font-mono leading-relaxed space-y-1">
+        <div className={`${textSecondary} text-[10px] text-center mt-6 font-mono leading-relaxed space-y-1`}>
           <p>
-            <a href="https://github.com/WLDKK/3d-connect6/blob/main/RULES.md" target="_blank" rel="noopener" className="text-cyber-accent/50 hover:text-cyber-accent/70 underline">📖 游戏规则</a>
+            <a href="https://github.com/WLDKK/3d-connect6/blob/main/RULES.md" target="_blank" rel="noopener" className={`${textSecondary} hover:opacity-80 underline`}>📖 游戏规则</a>
             {" · "}
-            <a href="https://github.com/WLDKK/3d-connect6" target="_blank" rel="noopener" className="text-cyber-accent/50 hover:text-cyber-accent/70 underline">GitHub</a>
+            <a href="https://github.com/WLDKK/3d-connect6" target="_blank" rel="noopener" className={`${textSecondary} hover:opacity-80 underline`}>GitHub</a>
           </p>
-          <p>多人对战需在另一个终端运行 <span className="text-cyber-accent/50">npm run dev:server</span></p>
+          <p>多人对战需在另一个终端运行 <span className={textSecondary}>npm run dev:server</span></p>
         </div>
       </div>
     </div>

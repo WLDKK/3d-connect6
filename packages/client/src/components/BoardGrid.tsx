@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { Vec3 } from "@connect6/shared";
+import { useViewState } from "../hooks/useViewStore";
 
 export const CELL_SIZE = 1.5;
 const HALF = CELL_SIZE / 2;
@@ -19,6 +20,8 @@ interface BoardGridProps {
  */
 export function BoardGrid({ sizeX, sizeY, sizeZ }: BoardGridProps) {
   const lineRef = useRef<THREE.LineSegments>(null);
+  const { theme } = useViewState();
+  const gridColor = theme === "dark" ? "#555566" : "#8899aa";
 
   const geometry = useMemo(() => {
     const positions: number[] = [];
@@ -67,7 +70,7 @@ export function BoardGrid({ sizeX, sizeY, sizeZ }: BoardGridProps) {
 
   return (
     <lineSegments ref={lineRef} geometry={geometry}>
-      <lineBasicMaterial color="#555566" transparent opacity={0.5} />
+      <lineBasicMaterial color={gridColor} transparent opacity={0.5} />
     </lineSegments>
   );
 }
