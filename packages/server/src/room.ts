@@ -179,7 +179,7 @@ export class GameRoom extends DurableObject {
   // ─── Join & Ready ───
 
   private handleJoin(ws: WebSocket): void {
-    // Reconnection
+    // Reconnection — already has a color assigned
     const existing = ws.deserializeAttachment() as PlayerMeta | null;
     if (existing) {
       this.sendRoomInfo(ws);
@@ -187,7 +187,25 @@ export class GameRoom extends DurableObject {
       return;
     }
 
-    // Assign slot
+    // If game is in progress and a slot is empty, this is a reconnecting player
+    if (this.gameStarted) {
+      if (!this.playerBlack) {
+        this.playerBlack = ws;
+        ws.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
+        ws.send(JSON.stringify({ type: MsgType.PLAYER_ASSIGNED, payload: { color: Player.BLACK } }));
+      } else if (!this.playerWhite) {
+        this.playerWhite = ws;
+        ws.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
+        ws.send(JSON.stringify({ type: MsgType.PLAYER_ASSIGNED, payload: { color: Player.WHITE } }));
+      } else {
+        this.observers.add(ws);
+      }
+      this.sendRoomInfo(ws);
+      this.broadcastTimer();
+      return;
+    }
+
+    // New game — assign slot
     if (!this.playerBlack) {
       this.playerBlack = ws;
     } else if (!this.playerWhite) {
@@ -239,6 +257,10 @@ export class GameRoom extends DurableObject {
 
     blackWs.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
     whiteWs.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
+
+    // Persist player slot assignment for reconnection
+    this.ctx.storage.put("blackSlotOccupied", true);
+    this.ctx.storage.put("whiteSlotOccupied", true);
 
     blackWs.send(JSON.stringify({
       type: MsgType.PLAYER_ASSIGNED,

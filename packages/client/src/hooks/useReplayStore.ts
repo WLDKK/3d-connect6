@@ -119,6 +119,11 @@ export function useReplayState(): ReplayState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/** Reset replay state (call when starting a new game) */
+export function resetReplay() {
+  setState({ viewIndex: 0, totalMoves: 0, isLive: true });
+}
+
 export function useReplayActions() {
   const goBack = useCallback(() => {
     const newIndex = prevTurnIndex(state.viewIndex);

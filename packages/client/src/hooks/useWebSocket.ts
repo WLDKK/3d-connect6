@@ -132,7 +132,12 @@ function doConnect(url: string) {
         break;
       }
       case MsgType.RESET_ACK: {
+        const ack = msg.payload as { success: boolean };
         setState({ pendingReset: false });
+        if (!ack.success) {
+          setState({ error: "重置请求已超时" });
+          setTimeout(() => setState({ error: null }), 3000);
+        }
         break;
       }
       case MsgType.GAME_START: {

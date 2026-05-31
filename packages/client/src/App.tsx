@@ -1,6 +1,6 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Suspense, useCallback, useState, useEffect } from "react";
+import { Suspense, useCallback, useState, useEffect, useRef } from "react";
 import { GameScene } from "./components/GameScene";
 import { ControlPanel } from "./components/ControlPanel";
 import { SliceMonitor } from "./components/SliceMonitor";
@@ -12,8 +12,8 @@ import { AiController } from "./components/AiController";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
 import { ReplayControls } from "./components/ReplayControls";
 import { useAiMemoryActions } from "./hooks/useAiMemory";
-import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard } from "./hooks/useReplayStore";
-import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice } from "@connect6/shared";
+import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, resetReplay } from "./hooks/useReplayStore";
+import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice, type Vec3 } from "@connect6/shared";
 
 /**
  * API base URL for Worker (WebSocket + REST).
@@ -259,6 +259,8 @@ function CoordInput({ onPreview }: { onPreview: (coords: { x: number; y: number;
 function MultiplayerSync({ roomId }: { roomId: string }) {
   const { loadState, setSendMove } = useGameActions();
   const { sendMove, setOnStateUpdate, setOnGameStart } = useWebSocketActions();
+  // Accumulate moves on client side (server STATE messages only include lastMove)
+  const movesRef = useRef<Vec3[]>([]);
 
   // Wire sendMove to game store
   useEffect(() => {
@@ -269,7 +271,10 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
   // Handle state updates from server
   useEffect(() => {
     setOnStateUpdate((payload: StatePayload) => {
-      // Use the config from the current local engine state
+      // Accumulate moves
+      if (payload.lastMove) {
+        movesRef.current.push(payload.lastMove);
+      }
       loadState({
         config: { sizeX: 10, sizeY: 10, sizeZ: 10, winLength: 6 },
         board: payload.board,
@@ -277,7 +282,7 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
         round: payload.round,
         stonesPlacedThisTurn: payload.stonesPlacedThisTurn,
         winner: payload.winner,
-        moves: payload.lastMove ? [payload.lastMove] : [],
+        moves: [...movesRef.current],
       });
     });
     return () => setOnStateUpdate(null);
@@ -286,6 +291,7 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
   // Handle initial room info snapshot
   useEffect(() => {
     setOnGameStart((state) => {
+      movesRef.current = [...state.moves]; // Initialize with full history
       loadState(state);
     });
     return () => setOnGameStart(null);
@@ -557,6 +563,7 @@ export default function App() {
 
   const handleEnterRoom = useCallback((id: string) => {
     store.reset();
+    resetReplay();
     setRoomId(id);
     setInGame(true);
     setAiColor(null);
@@ -567,7 +574,9 @@ export default function App() {
   }, [connect, store]);
 
   const handleLocalPlay = useCallback((model: AiModelId, color: ColorChoice) => {
+    disconnect();
     store.reset();
+    resetReplay();
     setRoomId(null);
     setInGame(true);
     setAiModel(model);
@@ -577,31 +586,36 @@ export default function App() {
     } else {
       setAiColor(color === "black" ? Player.WHITE : Player.BLACK);
     }
-  }, [store]);
+  }, [store, disconnect]);
 
   const handleTraining = useCallback((analyze: boolean) => {
+    disconnect();
     store.reset();
+    resetReplay();
     setRoomId(null);
     setInGame(true);
     setAiColor(null);
     setAiModel("local");
     setGameMode("training");
     setTrainingAnalyze(analyze);
-  }, [store]);
+  }, [store, disconnect]);
 
   const handleDualAi = useCallback((modelBlack: AiModelId, modelWhite: AiModelId) => {
+    disconnect();
     store.reset();
+    resetReplay();
     setRoomId(null);
     setInGame(true);
     setAiColor(Player.WHITE);
     setAiModel(modelWhite);
     setGameMode("dual_ai");
     setDualAiModels({ black: modelBlack, white: modelWhite });
-  }, []);
+  }, [store, disconnect]);
 
   const handleLeaveRoom = useCallback(() => {
     disconnect();
     store.reset();
+    resetReplay();
     setRoomId(null);
     setInGame(false);
     setAiColor(null);
