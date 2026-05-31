@@ -115,7 +115,7 @@ function buildPrompts(req: AiRequestPayload) {
 
   const analysis = analyzePosition(board, config, aiColor as unknown as Stone);
 
-  const system = `You are a world-class Connect6 AI. Board: ${sx}×${sy}×${sz} (3D). You are ${colorName}.
+  const system = `You are a world-class Connect6 AI grandmaster. Board: ${sx}×${sy}×${sz} (3D). You are ${colorName}.
 
 ═══ RULES ═══
 - 3D grid: (x, y, z), each 0..${sx - 1}.
@@ -163,11 +163,7 @@ Priority 6 — USE BOTH STONES WISELY:
 - Placing isolated stones far from any line — wastes a turn.
 - Extending a half-open line when you could build a new open line.
 - Ignoring Z-axis lines — the board is 3D, diagonal through layers is powerful.
-- Defensive-only play — you MUST attack, 2 stones/turn means pure defense loses.
-
-═══ FORMAT ═══
-Reply with ONLY coordinates: (x,y,z) for 1 stone, or (x1,y1,z1) (x2,y2,z2) for 2 stones.
-Nothing else.`;
+- Defensive-only play — you MUST attack, 2 stones/turn means pure defense loses.`;
 
   const user = `Board state (X=Black, O=White, .=empty). You are ${colorName}, place ${stonesToPlace} stone(s).
 Black: ${blackCount} stones, White: ${whiteCount} stones.
@@ -175,8 +171,27 @@ Black: ${blackCount} stones, White: ${whiteCount} stones.
 ${boardText}
 ${analysis}
 
-Think step by step: What are the biggest threats? What double-threats can you create?
-Your move (coordinates only):`;
+═══ THINK DEEPLY ═══
+Before moving, analyze the position step by step:
+
+1. **Scan for immediate wins**: Can I complete ${winLength} in a row this turn? Check all 13 directions from every empty cell.
+
+2. **Scan for opponent threats**: Does the opponent have any Open-${winLength - 1} or winning moves I MUST block?
+
+3. **Evaluate candidate moves**: For the top 5-8 candidate positions, assess:
+   - What lines does this stone extend or create?
+   - Is the resulting line open, half-open, or closed?
+   - Does this stone participate in multiple line directions?
+   - Does this create a double-threat opportunity?
+
+4. **Plan both stones together**: Since I place ${stonesToPlace} stone(s), how do they work as a team?
+   - Can they create two separate Open-${winLength - 1} lines?
+   - Can one block while the other attacks?
+
+5. **Choose the BEST move**: Select the move(s) that maximize winning chances.
+
+After your analysis, output ONLY the final coordinates on the last line:
+Format: (x,y,z) or (x1,y1,z1) (x2,y2,z2)`;
 
   return { system, user };
 }
@@ -192,6 +207,10 @@ function analyzePosition(board: number[], config: BoardConfig, aiStone: Stone): 
   let myWins = 0, oppWins = 0;
   let myOpen5 = 0, oppOpen5 = 0;
   let myOpen4 = 0, oppOpen4 = 0;
+  const myWinMoves: string[] = [];
+  const oppWinMoves: string[] = [];
+  const myOpen5Moves: string[] = [];
+  const oppOpen5Moves: string[] = [];
 
   for (let z = 0; z < sz; z++) {
     for (let y = 0; y < sy; y++) {
@@ -201,21 +220,21 @@ function analyzePosition(board: number[], config: BoardConfig, aiStone: Stone): 
         const myScore = scoreCell(board, config, x, y, z, aiStone);
         const oppScore = scoreCell(board, config, x, y, z, oppStone);
 
-        if (myScore >= winLength) myWins++;
-        if (oppScore >= winLength) oppWins++;
-        if (myScore === winLength - 1) myOpen5++;
-        if (oppScore === winLength - 1) oppOpen5++;
+        if (myScore >= winLength) { myWins++; myWinMoves.push(`(${x},${y},${z})`); }
+        if (oppScore >= winLength) { oppWins++; oppWinMoves.push(`(${x},${y},${z})`); }
+        if (myScore === winLength - 1) { myOpen5++; myOpen5Moves.push(`(${x},${y},${z})`); }
+        if (oppScore === winLength - 1) { oppOpen5++; oppOpen5Moves.push(`(${x},${y},${z})`); }
         if (myScore === winLength - 2) myOpen4++;
         if (oppScore === winLength - 2) oppOpen4++;
       }
     }
   }
 
-  if (oppWins > 0) lines.push(`🚨 OPPONENT CAN WIN! ${oppWins} winning move(s) — you MUST block!`);
-  if (myWins > 0) lines.push(`✅ YOU CAN WIN! ${myWins} winning move(s) — take it!`);
-  if (oppOpen5 > 0) lines.push(`⚠️ Opponent has ${oppOpen5} Open-${winLength - 1} threat(s) — block urgently.`);
-  if (myOpen5 > 0) lines.push(`🎯 You have ${myOpen5} Open-${winLength - 1} threat(s) — press the advantage.`);
-  if (myOpen4 > 1) lines.push(`💪 Multiple Open-${winLength - 2} — look for double-threat opportunities.`);
+  if (oppWins > 0) lines.push(`🚨 CRITICAL: Opponent can win at ${oppWinMoves.join(", ")} — YOU MUST BLOCK ONE!`);
+  if (myWins > 0) lines.push(`✅ YOU CAN WIN at ${myWinMoves.join(", ")} — play it now!`);
+  if (oppOpen5 > 0) lines.push(`⚠️ Opponent Open-${winLength - 1} at ${oppOpen5Moves.slice(0, 3).join(", ")}${oppOpen5 > 3 ? "..." : ""} — block urgently.`);
+  if (myOpen5 > 0) lines.push(`🎯 Your Open-${winLength - 1} at ${myOpen5Moves.slice(0, 3).join(", ")}${myOpen5 > 3 ? "..." : ""} — press the advantage.`);
+  if (myOpen4 > 1) lines.push(`💪 You have ${myOpen4} Open-${winLength - 2} lines — look for double-threat setups.`);
   if (oppOpen4 > 1) lines.push(`🛡️ Opponent has ${oppOpen4} Open-${winLength - 2} — watch for their double threats.`);
 
   if (lines.length === 0) {
@@ -239,8 +258,8 @@ async function callOpenAI(cfg: ModelConfig, system: string, user: string): Promi
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 100,
-      temperature: 0.3,
+      max_tokens: 1024,
+      temperature: 0.15,
     }),
   });
   if (!res.ok) return null;
@@ -259,7 +278,8 @@ async function callAnthropic(cfg: ModelConfig, system: string, user: string): Pr
     },
     body: JSON.stringify({
       model: cfg.model,
-      max_tokens: 100,
+      max_tokens: 1024,
+      temperature: 0.15,
       system,
       messages: [
         { role: "user", content: user },
