@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useWebSocketState } from "../hooks/useWebSocket";
 import { useViewState, useViewActions } from "../hooks/useViewStore";
 import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
@@ -24,31 +24,88 @@ interface LobbyProps {
   onDualAi: (modelBlack: AiModelId, modelWhite: AiModelId) => void;
 }
 
-function SelectField({ label, value, onChange, options, theme }: {
+/* ── Mystic Select ── */
+function MysticSelect({ label, value, onChange, options }: {
   label: string; value: string; onChange: (v: string) => void;
   options: { id?: string; value?: string; label: string }[];
-  theme: "dark" | "light";
 }) {
-  const isDark = theme === "dark";
   return (
     <div>
-      <label className={`text-[10px] font-mono block mb-1 ${isDark ? "text-white/40" : "text-gray-500"}`}>{label}</label>
+      <label className="text-[10px] font-mono block mb-1 text-slate-500">{label}</label>
       <div className="relative">
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full ${isDark ? "bg-white/5 text-white border-white/10 hover:border-white/20" : "bg-gray-50 text-gray-800 border-gray-200 hover:border-gray-300"} px-3 py-2 pr-7 rounded-lg outline-none border font-mono text-xs appearance-none cursor-pointer transition-colors focus:border-cyan-400/50`}
+          className="w-full bg-white/[0.04] text-slate-200 px-3 py-2 pr-7 rounded-lg outline-none border border-white/[0.06] hover:border-white/[0.12] font-mono text-xs appearance-none cursor-pointer transition-all duration-300 focus:border-cyan-400/30 focus:shadow-[0_0_12px_rgba(126,196,255,0.06)]"
         >
           {options.map((o) => (
-            <option key={o.id || o.value} value={o.id || o.value}>{o.label}</option>
+            <option key={o.id || o.value} value={o.id || o.value} className="bg-[#0a0e17]">{o.label}</option>
           ))}
         </select>
-        <span className={`absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[9px] ${isDark ? "text-white/30" : "text-gray-400"}`}>▾</span>
+        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[9px] text-white/20">▾</span>
       </div>
     </div>
   );
 }
 
+/* ── Mystic Card ── */
+function MysticCard({ icon, title, subtitle, delay, children }: {
+  icon: string; title: string; subtitle: string; delay: number; children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
+
+  return (
+    <div
+      ref={ref}
+      className="mystic-card"
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translate3d(0,0,0)" : "translate3d(0,24px,0)",
+        transition: `opacity 0.6s cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 0.6s cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
+      }}
+    >
+      <div className="flex items-center gap-2.5 mb-3.5">
+        <span className="text-sm opacity-70">{icon}</span>
+        <span className="text-xs font-bold tracking-wide text-slate-100">{title}</span>
+        <span className="text-[10px] font-mono ml-auto text-slate-600">{subtitle}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/* ── Mystic Button ── */
+function MysticBtn({ onClick, children, color = "cyan", disabled }: {
+  onClick: () => void; children: React.ReactNode; color?: string; disabled?: boolean;
+}) {
+  const colorMap: Record<string, string> = {
+    cyan: "from-cyan-400/20 to-blue-500/10 border-cyan-400/15 hover:border-cyan-400/30 hover:shadow-[0_0_20px_rgba(126,196,255,0.08)] text-cyan-300",
+    purple: "from-purple-400/15 to-violet-500/10 border-purple-400/15 hover:border-purple-400/30 hover:shadow-[0_0_20px_rgba(168,85,247,0.08)] text-purple-300",
+    orange: "from-orange-400/15 to-amber-500/10 border-orange-400/15 hover:border-orange-400/30 hover:shadow-[0_0_20px_rgba(251,146,60,0.08)] text-orange-300",
+    green: "from-emerald-400/15 to-green-500/10 border-emerald-400/15 hover:border-emerald-400/30 hover:shadow-[0_0_20px_rgba(52,211,153,0.08)] text-emerald-300",
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full py-2.5 rounded-lg font-mono text-xs tracking-wide transition-all duration-300
+        bg-gradient-to-r border disabled:opacity-30 disabled:cursor-not-allowed
+        hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]
+        ${colorMap[color] || colorMap.cyan}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ── Main Lobby ── */
 export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyProps) {
   const [roomId, setRoomId] = useState("");
   const [aiModel, setAiModel] = useState<AiModelId>("deepseek-v4-flash");
@@ -57,181 +114,115 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
   const [dualModelBlack, setDualModelBlack] = useState<AiModelId>("glm-5.1");
   const [dualModelWhite, setDualModelWhite] = useState<AiModelId>("glm-5.1");
   const { status, error } = useWebSocketState();
-  const { theme } = useViewState();
   const { toggleTheme } = useViewActions();
 
-  const isDark = theme === "dark";
   const handleSubmit = useCallback(() => {
     const id = roomId.trim();
-    if (!id) return;
-    onEnterRoom(id);
+    if (id) onEnterRoom(id);
   }, [roomId, onEnterRoom]);
 
   return (
-    <div className={`absolute inset-0 z-50 overflow-auto ${isDark ? "bg-[#06080f]" : "bg-[#f0ebe3]"}`}>
-      {/* Animated background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {isDark ? (
-          <>
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_50%,rgba(0,240,255,0.06),transparent_60%)]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(123,97,255,0.06),transparent_60%)]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_80%,rgba(0,240,255,0.03),transparent_50%)]" />
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/20 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/20 to-transparent" />
-            {/* Grid pattern */}
-            <div className="absolute inset-0 opacity-[0.03]" style={{
-              backgroundImage: "linear-gradient(rgba(0,240,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(0,240,255,0.3) 1px, transparent 1px)",
-              backgroundSize: "60px 60px"
-            }} />
-            {/* Floating particles */}
-            <div className="absolute w-1 h-1 bg-cyan-400/30 rounded-full animate-pulse" style={{ top: "20%", left: "15%" }} />
-            <div className="absolute w-1.5 h-1.5 bg-purple-400/20 rounded-full animate-pulse" style={{ top: "60%", left: "80%", animationDelay: "1s" }} />
-            <div className="absolute w-1 h-1 bg-cyan-400/20 rounded-full animate-pulse" style={{ top: "80%", left: "30%", animationDelay: "2s" }} />
-          </>
-        ) : (
-          <>
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_50%,rgba(59,130,246,0.06),transparent_60%)]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(168,85,247,0.05),transparent_60%)]" />
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-300/30 to-transparent" />
-            <div className="absolute inset-0 opacity-[0.03]" style={{
-              backgroundImage: "linear-gradient(rgba(0,0,0,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.15) 1px, transparent 1px)",
-              backgroundSize: "60px 60px"
-            }} />
-          </>
-        )}
-      </div>
+    <div className="lobby-root">
+      {/* ── Atmospheric background layers ── */}
+      <div className="lobby-fog-a" />
+      <div className="lobby-fog-b" />
+      <div className="lobby-vignette" />
+      <div className="lobby-noise" />
+      <div className="lobby-grid" />
 
-      {/* Content */}
+      {/* ── Content ── */}
       <div className="relative flex items-center justify-center min-h-full p-4">
-        <div className="w-full max-w-[440px]">
+        <div className="w-full max-w-[460px]">
           {/* Header */}
-          <div className="text-center mb-8">
-            <div className="flex items-center justify-center gap-3 mb-2">
-              <div className={`w-8 h-8 rounded-lg ${isDark ? "bg-cyan-500/10 border-cyan-500/20" : "bg-blue-500/10 border-blue-500/20"} border flex items-center justify-center`}>
-                <span className="text-sm">♟</span>
-              </div>
-              <h1 className={`text-3xl font-bold tracking-wider ${isDark ? "text-white" : "text-gray-900"}`}>
-                3D 六子棋
-              </h1>
-              <button
-                onClick={toggleTheme}
-                className={`w-8 h-8 rounded-lg ${isDark ? "bg-white/5 border-white/10 hover:bg-white/10" : "bg-gray-100 border-gray-200 hover:bg-gray-200"} border flex items-center justify-center transition-colors text-sm`}
-                title="切换主题"
-              >
-                {isDark ? "☀" : "🌙"}
-              </button>
-            </div>
-            <p className={`text-xs font-mono tracking-widest uppercase ${isDark ? "text-white/25" : "text-gray-400"}`}>
-              Connect6 · 3D Strategy Game
+          <div className="text-center mb-10" style={{ animation: "fadeUp 0.8s cubic-bezier(0.22,1,0.36,1) both" }}>
+            <button
+              onClick={toggleTheme}
+              className="absolute top-6 right-6 w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] flex items-center justify-center transition-all duration-300 text-sm text-slate-400 hover:text-slate-200"
+              title="切换主题"
+            >
+              ☀
+            </button>
+            <h1 className="text-4xl font-black tracking-tight mb-2 bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+              3D 六子棋
+            </h1>
+            <p className="text-[11px] font-mono tracking-[0.3em] uppercase text-slate-600">
+              Connect6 · 3D Strategy
             </p>
+            <div className="mt-5 mx-auto w-24 h-px bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent" />
           </div>
 
-          {/* Mode Cards */}
+          {/* Mode cards */}
           <div className="space-y-3">
-            {/* Card 1: Single Player */}
-            <div className={`${isDark ? "bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]" : "bg-white/60 border-gray-200/60 hover:border-gray-300"} border rounded-xl p-4 transition-colors group`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`text-sm ${isDark ? "text-cyan-400" : "text-blue-600"}`}>⚔</span>
-                <span className={`text-xs font-bold tracking-wide ${isDark ? "text-white/80" : "text-gray-700"}`}>单机对弈</span>
-                <span className={`text-[10px] font-mono ml-auto ${isDark ? "text-white/20" : "text-gray-400"}`}>人 vs AI</span>
+            {/* 1. Single Player */}
+            <MysticCard icon="⚔" title="单机对弈" subtitle="人 vs AI" delay={120}>
+              <div className="grid grid-cols-2 gap-2.5 mb-3.5">
+                <MysticSelect label="AI 模型" value={aiModel} onChange={(v) => setAiModel(v as AiModelId)} options={AI_MODELS} />
+                <MysticSelect label="执棋" value={colorChoice} onChange={(v) => setColorChoice(v as ColorChoice)} options={COLOR_OPTIONS} />
               </div>
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <SelectField label="AI 模型" value={aiModel} onChange={(v) => setAiModel(v as AiModelId)} options={AI_MODELS} theme={theme} />
-                <SelectField label="执棋" value={colorChoice} onChange={(v) => setColorChoice(v as ColorChoice)} options={COLOR_OPTIONS} theme={theme} />
-              </div>
-              <button
-                onClick={() => onLocalPlay(aiModel, colorChoice)}
-                className={`w-full py-2.5 rounded-lg font-mono text-xs tracking-wide transition-all ${isDark ? "bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/20 hover:border-cyan-500/30" : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 border border-blue-500/20 hover:border-blue-500/30"}`}
-              >
-                开始对弈
-              </button>
-            </div>
+              <MysticBtn onClick={() => onLocalPlay(aiModel, colorChoice)} color="cyan">开始对弈</MysticBtn>
+            </MysticCard>
 
-            {/* Card 2: Training */}
-            <div className={`${isDark ? "bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]" : "bg-white/60 border-gray-200/60 hover:border-gray-300"} border rounded-xl p-4 transition-colors`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`text-sm ${isDark ? "text-purple-400" : "text-purple-600"}`}>🧪</span>
-                <span className={`text-xs font-bold tracking-wide ${isDark ? "text-white/80" : "text-gray-700"}`}>训练模式</span>
-                <span className={`text-[10px] font-mono ml-auto ${isDark ? "text-white/20" : "text-gray-400"}`}>自由落子</span>
-              </div>
-              <div className="flex items-center gap-3 mb-3">
+            {/* 2. Training */}
+            <MysticCard icon="🧪" title="训练模式" subtitle="自由落子" delay={210}>
+              <div className="flex items-center gap-3 mb-3.5">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={analyze} onChange={(e) => setAnalyze(e.target.checked)}
                     className="w-3.5 h-3.5 rounded accent-purple-400" />
-                  <span className={`text-[11px] font-mono ${isDark ? "text-white/50" : "text-gray-500"}`}>AI 分析</span>
+                  <span className="text-[11px] font-mono text-slate-500">AI 分析</span>
                 </label>
                 {analyze && (
                   <div className="flex-1">
-                    <SelectField label="" value={aiModel} onChange={(v) => setAiModel(v as AiModelId)} options={AI_MODELS} theme={theme} />
+                    <MysticSelect label="" value={aiModel} onChange={(v) => setAiModel(v as AiModelId)} options={AI_MODELS} />
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => onTraining(analyze)}
-                className={`w-full py-2.5 rounded-lg font-mono text-xs tracking-wide transition-all ${isDark ? "bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 hover:border-purple-500/30" : "bg-purple-500/10 text-purple-600 hover:bg-purple-500/15 border border-purple-500/20 hover:border-purple-500/30"}`}
-              >
-                进入训练
-              </button>
-            </div>
+              <MysticBtn onClick={() => onTraining(analyze)} color="purple">进入训练</MysticBtn>
+            </MysticCard>
 
-            {/* Card 3: AI vs AI */}
-            <div className={`${isDark ? "bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]" : "bg-white/60 border-gray-200/60 hover:border-gray-300"} border rounded-xl p-4 transition-colors`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`text-sm ${isDark ? "text-orange-400" : "text-orange-600"}`}>🤖</span>
-                <span className={`text-xs font-bold tracking-wide ${isDark ? "text-white/80" : "text-gray-700"}`}>AI 对抗</span>
-                <span className={`text-[10px] font-mono ml-auto ${isDark ? "text-white/20" : "text-gray-400"}`}>观赏模式</span>
+            {/* 3. AI vs AI */}
+            <MysticCard icon="🤖" title="AI 对抗" subtitle="观赏模式" delay={300}>
+              <div className="grid grid-cols-2 gap-2.5 mb-3.5">
+                <MysticSelect label="⚫ 黑方" value={dualModelBlack} onChange={(v) => setDualModelBlack(v as AiModelId)} options={AI_MODELS} />
+                <MysticSelect label="⚪ 白方" value={dualModelWhite} onChange={(v) => setDualModelWhite(v as AiModelId)} options={AI_MODELS} />
               </div>
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <SelectField label="⚫ 黑方" value={dualModelBlack} onChange={(v) => setDualModelBlack(v as AiModelId)} options={AI_MODELS} theme={theme} />
-                <SelectField label="⚪ 白方" value={dualModelWhite} onChange={(v) => setDualModelWhite(v as AiModelId)} options={AI_MODELS} theme={theme} />
-              </div>
-              <button
-                onClick={() => onDualAi(dualModelBlack, dualModelWhite)}
-                className={`w-full py-2.5 rounded-lg font-mono text-xs tracking-wide transition-all ${isDark ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20 hover:border-orange-500/30" : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/15 border border-orange-500/20 hover:border-orange-500/30"}`}
-              >
-                开始观赏
-              </button>
-            </div>
+              <MysticBtn onClick={() => onDualAi(dualModelBlack, dualModelWhite)} color="orange">开始观赏</MysticBtn>
+            </MysticCard>
 
-            {/* Card 4: Multiplayer */}
-            <div className={`${isDark ? "bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]" : "bg-white/60 border-gray-200/60 hover:border-gray-300"} border rounded-xl p-4 transition-colors`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`text-sm ${isDark ? "text-green-400" : "text-green-600"}`}>👥</span>
-                <span className={`text-xs font-bold tracking-wide ${isDark ? "text-white/80" : "text-gray-700"}`}>多人对战</span>
-                <span className={`text-[10px] font-mono ml-auto ${isDark ? "text-white/20" : "text-gray-400"}`}>实时匹配</span>
-              </div>
-              <div className="flex gap-2">
+            {/* 4. Multiplayer */}
+            <MysticCard icon="👥" title="多人对战" subtitle="实时匹配" delay={390}>
+              <div className="flex gap-2.5">
                 <input
                   type="text"
                   value={roomId}
                   onChange={(e) => setRoomId(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                   placeholder="输入房间名..."
-                  className={`flex-1 ${isDark ? "bg-white/5 text-white border-white/10 placeholder-white/20 focus:border-cyan-500/40" : "bg-gray-50 text-gray-800 border-gray-200 placeholder-gray-400 focus:border-blue-400/60"} px-3 py-2.5 rounded-lg outline-none border font-mono text-xs transition-colors`}
+                  className="flex-1 bg-white/[0.04] text-slate-200 px-3 py-2.5 rounded-lg outline-none border border-white/[0.06] hover:border-white/[0.12] focus:border-cyan-400/30 placeholder-slate-600 font-mono text-xs transition-all duration-300"
                 />
                 <button
                   onClick={handleSubmit}
                   disabled={!roomId.trim() || status === "connecting"}
-                  className={`px-5 py-2.5 rounded-lg font-mono text-xs tracking-wide transition-all disabled:opacity-30 ${isDark ? "bg-green-500/10 text-green-400 hover:bg-green-500/20 border border-green-500/20 hover:border-green-500/30" : "bg-green-500/10 text-green-600 hover:bg-green-500/15 border border-green-500/20 hover:border-green-500/30"}`}
+                  className="px-5 py-2.5 rounded-lg font-mono text-xs tracking-wide transition-all duration-300 bg-gradient-to-r from-emerald-400/15 to-green-500/10 border border-emerald-400/15 hover:border-emerald-400/30 hover:-translate-y-[1px] text-emerald-300 disabled:opacity-30"
                 >
                   {status === "connecting" ? "连接中" : "加入"}
                 </button>
               </div>
               {error && (
-                <p className="text-red-400 text-[10px] font-mono mt-2 text-center">
+                <p className="text-red-400/80 text-[10px] font-mono mt-2 text-center">
                   {error === "Connection error" ? "无法连接服务器" : error}
                 </p>
               )}
-            </div>
+            </MysticCard>
           </div>
 
           {/* Footer */}
-          <div className={`text-center mt-6 text-[10px] font-mono space-x-3 ${isDark ? "text-white/15" : "text-gray-400"}`}>
+          <div className="text-center mt-8 text-[10px] font-mono space-x-3 text-slate-700"
+            style={{ animation: "fadeUp 0.8s cubic-bezier(0.22,1,0.36,1) 500ms both" }}>
             <a href="https://github.com/WLDKK/3d-connect6/blob/main/RULES.md" target="_blank" rel="noopener"
-              className={`${isDark ? "hover:text-white/30" : "hover:text-gray-600"} transition-colors`}>📖 规则</a>
-            <span>·</span>
+              className="hover:text-slate-500 transition-colors duration-300">📖 规则</a>
+            <span className="text-slate-800">·</span>
             <a href="https://github.com/WLDKK/3d-connect6" target="_blank" rel="noopener"
-              className={`${isDark ? "hover:text-white/30" : "hover:text-gray-600"} transition-colors`}>GitHub</a>
+              className="hover:text-slate-500 transition-colors duration-300">GitHub</a>
           </div>
         </div>
       </div>
@@ -239,22 +230,16 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
   );
 }
 
-interface RoomStatusProps {
-  roomId: string;
-}
+/* ── Room Status (in-game overlay) ── */
+interface RoomStatusProps { roomId: string; }
 
 export function RoomStatus({ roomId }: RoomStatusProps) {
   const { status, playerColor, roomInfo, timer, error } = useWebSocketState();
   const [remaining, setRemaining] = useState(0);
-  const { theme } = useViewState();
 
-  const isDark = theme === "dark";
   const colorName = playerColor === Player.BLACK ? "黑方" : playerColor === Player.WHITE ? "白方" : "观战";
-  const colorClass = playerColor === Player.BLACK ? "text-gray-300" : "text-white";
   const isConnected = status === "connected";
-  const playerCount = roomInfo
-    ? (roomInfo.players.black ? 1 : 0) + (roomInfo.players.white ? 1 : 0)
-    : 0;
+  const playerCount = roomInfo ? (roomInfo.players.black ? 1 : 0) + (roomInfo.players.white ? 1 : 0) : 0;
   const isGameOver = roomInfo?.state?.winner !== Stone.EMPTY;
   const isMyTurn = timer?.currentPlayer === playerColor;
 
@@ -269,25 +254,23 @@ export function RoomStatus({ roomId }: RoomStatusProps) {
     return () => clearInterval(interval);
   }, [timer, isGameOver]);
 
-  const timerColor = remaining <= 15 ? "text-red-400" : remaining <= 30 ? "text-yellow-400" : isDark ? "text-white/40" : "text-gray-500";
+  const timerColor = remaining <= 15 ? "text-red-400" : remaining <= 30 ? "text-yellow-400" : "text-slate-500";
 
   return (
     <div className="absolute bottom-16 right-4 font-mono text-xs pointer-events-none select-none">
-      <div className={`${isDark ? "bg-black/60 border-white/10" : "bg-white/70 border-gray-200"} backdrop-blur-sm border rounded-lg px-4 py-2`}>
-        <div className={`${isDark ? "text-white/30" : "text-gray-500"} text-[10px] mb-1`}>
-          房间: {roomId}
-        </div>
+      <div className="mystic-card !p-3 !rounded-lg">
+        <div className="text-slate-600 text-[10px] mb-1">房间: {roomId}</div>
         <div className="flex items-center gap-2">
           <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-green-400" : "bg-red-400"}`} />
-          <span className={colorClass}>{colorName}</span>
-          <span className={isDark ? "text-white/30" : "text-gray-400"}>· {playerCount}/2</span>
+          <span className={playerColor === Player.BLACK ? "text-slate-300" : "text-white"}>{colorName}</span>
+          <span className="text-slate-600">· {playerCount}/2</span>
         </div>
         {timer && !isGameOver && remaining > 0 && (
           <div className={`text-[11px] mt-1 font-bold ${timerColor}`}>
             ⏳ {remaining}s{isMyTurn && " — 你的回合"}
           </div>
         )}
-        {error && <div className="text-red-400 text-[10px] mt-1">{error}</div>}
+        {error && <div className="text-red-400/80 text-[10px] mt-1">{error}</div>}
       </div>
     </div>
   );
