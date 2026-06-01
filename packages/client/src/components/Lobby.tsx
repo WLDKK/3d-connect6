@@ -123,12 +123,8 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
 
   return (
     <div className="lobby-root">
-      {/* ── Atmospheric background layers ── */}
+      {/* ── Background glow ── */}
       <div className="lobby-fog-a" />
-      <div className="lobby-fog-b" />
-      <div className="lobby-vignette" />
-      <div className="lobby-noise" />
-      <div className="lobby-grid" />
 
       {/* ── Content ── */}
       <div className="relative flex items-center justify-center min-h-full p-4">

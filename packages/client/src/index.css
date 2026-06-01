@@ -19,90 +19,32 @@ body {
   z-index: 50;
   overflow: auto;
   background-color: #0a0806;
+  /* Diamond grid: two 45° stripe layers create uniform菱形 pattern */
   background-image:
-    linear-gradient(180deg, rgba(10,8,6,0.95) 0%, rgba(8,6,4,0.98) 50%, rgba(6,4,2,1) 100%),
-    linear-gradient(135deg, rgba(60,40,20,0.06) 25%, transparent 25%, transparent 50%, rgba(60,40,20,0.06) 50%, rgba(60,40,20,0.06) 75%, transparent 75%),
-    linear-gradient(45deg, rgba(60,40,20,0.04) 25%, transparent 25%, transparent 50%, rgba(60,40,20,0.04) 50%, rgba(60,40,20,0.04) 75%, transparent 75%);
-  background-size: 100% 100%, 48px 48px, 48px 48px;
+    repeating-linear-gradient(45deg, rgba(80,60,30,0.07) 0px, rgba(80,60,30,0.07) 1px, transparent 1px, transparent 32px),
+    repeating-linear-gradient(-45deg, rgba(80,60,30,0.07) 0px, rgba(80,60,30,0.07) 1px, transparent 1px, transparent 32px);
 }
 
 [data-theme="light"] .lobby-root {
   background-color: #f0e8da;
   background-image:
-    linear-gradient(180deg, rgba(240,232,218,1) 0%, rgba(235,225,210,1) 100%),
-    linear-gradient(135deg, rgba(180,150,110,0.12) 25%, transparent 25%, transparent 50%, rgba(180,150,110,0.12) 50%, rgba(180,150,110,0.12) 75%, transparent 75%),
-    linear-gradient(45deg, rgba(180,150,110,0.08) 25%, transparent 25%, transparent 50%, rgba(180,150,110,0.08) 50%, rgba(180,150,110,0.08) 75%, transparent 75%);
-  background-size: 100% 100%, 48px 48px, 48px 48px;
+    repeating-linear-gradient(45deg, rgba(140,110,60,0.1) 0px, rgba(140,110,60,0.1) 1px, transparent 1px, transparent 32px),
+    repeating-linear-gradient(-45deg, rgba(140,110,60,0.1) 0px, rgba(140,110,60,0.1) 1px, transparent 1px, transparent 32px);
 }
 
-/* ── Atmospheric fog layers ── */
+/* ── Subtle center glow ── */
 .lobby-fog-a {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 60% 50% at 25% 45%, rgba(160,120,60,0.04), transparent);
-  filter: blur(120px);
-  animation: fogDriftA 36s ease-in-out infinite alternate;
+  background: radial-gradient(ellipse 50% 40% at 50% 50%, rgba(140,100,50,0.04), transparent);
+  filter: blur(80px);
 }
 
-.lobby-fog-b {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(ellipse 55% 45% at 75% 30%, rgba(120,90,40,0.03), transparent);
-  filter: blur(140px);
-  animation: fogDriftB 42s ease-in-out infinite alternate;
-}
-
-@keyframes fogDriftA {
-  0%   { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(40px, -30px) scale(1.08); }
-}
-@keyframes fogDriftB {
-  0%   { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(-35px, 25px) scale(1.06); }
-}
-
-/* ── Vignette ── */
-.lobby-vignette {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, rgba(0,0,0,0.4) 0%, transparent 15%, transparent 85%, rgba(0,0,0,0.4) 100%),
-    linear-gradient(180deg, transparent 0%, transparent 60%, rgba(0,0,0,0.6) 100%),
-    radial-gradient(ellipse 100% 80% at 50% 100%, rgba(0,0,0,0.5), transparent 60%);
-}
-
-/* ── Noise texture ── */
-.lobby-noise {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.018;
-  background:
-    repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(255,255,255,0.03) 1px, transparent 2px),
-    repeating-linear-gradient(90deg, transparent, transparent 5px, rgba(255,255,255,0.015) 5px, transparent 6px);
-  animation: noiseDrift 1.8s steps(2) infinite;
-}
-
-@keyframes noiseDrift {
-  0%   { transform: translateY(0); }
-  100% { transform: translateY(-2px); }
-}
-
-/* ── Grid pattern ── */
-.lobby-grid {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.04;
-  background-image:
-    linear-gradient(rgba(160,120,60,0.15) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(160,120,60,0.15) 1px, transparent 1px);
-  background-size: 64px 64px;
-  transform: rotate(45deg) scale(1.5);
-}
+.lobby-fog-b { display: none; }
+.lobby-vignette { display: none; }
+.lobby-noise { display: none; }
+.lobby-grid { display: none; }
 
 [data-theme="light"] .lobby-fog-a {
   background: radial-gradient(ellipse 60% 50% at 25% 45%, rgba(180,140,80,0.06), transparent);
