@@ -1,10 +1,6 @@
 import { BoardConfig, Player, Stone, Vec3, Direction, AiRequestPayload, AiResponsePayload } from "./types";
 import { AiMemory } from "./ai-memory";
 
-/**
- * 13 basis direction vectors (positive half-spaces only).
- * Search both +d and -d from each cell.
- */
 const DIRECTIONS: readonly Direction[] = [
   { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 },
   { x: 1, y: 1, z: 0 }, { x: 1, y: -1, z: 0 },
@@ -14,37 +10,320 @@ const DIRECTIONS: readonly Direction[] = [
   { x: 1, y: -1, z: 1 }, { x: 1, y: -1, z: -1 },
 ];
 
-function inBounds(x: number, y: number, z: number, config: BoardConfig): boolean {
-  return x >= 0 && x < config.sizeX && y >= 0 && y < config.sizeY && z >= 0 && z < config.sizeZ;
+function inBounds(x: number, y: number, z: number, c: BoardConfig): boolean {
+  return x >= 0 && x < c.sizeX && y >= 0 && y < c.sizeY && z >= 0 && z < c.sizeZ;
 }
 
-function getStone(board: number[], x: number, y: number, z: number, config: BoardConfig): Stone {
-  return board[z * config.sizeY * config.sizeX + y * config.sizeX + x] as Stone;
+function getStone(b: number[], x: number, y: number, z: number, c: BoardConfig): Stone {
+  return b[z * c.sizeY * c.sizeX + y * c.sizeX + x] as Stone;
+}
+
+function setStone(b: number[], x: number, y: number, z: number, c: BoardConfig, s: Stone): void {
+  b[z * c.sizeY * c.sizeX + y * c.sizeX + x] = s;
+}
+
+// ─── Line analysis ───
+
+interface LineInfo {
+  count: number;    // consecutive same-color stones
+  openEnds: number; // 0, 1, or 2 open ends
 }
 
 /**
- * Count consecutive stones of `color` starting from (x+dx, y+dy, z+dz)
- * in direction `dir`. Stops at boundary or different color.
+ * Analyze a line through (x,y,z) in direction `dir` for `color`.
+ * Returns the count of consecutive stones and how many ends are open.
  */
-function countDir(
-  board: number[], config: BoardConfig,
+function analyzeLine(
+  b: number[], c: BoardConfig,
   x: number, y: number, z: number,
   dir: Direction, color: Stone,
-): number {
-  let count = 0;
-  let cx = x + dir.x, cy = y + dir.y, cz = z + dir.z;
-  while (inBounds(cx, cy, cz, config) && getStone(board, cx, cy, cz, config) === color) {
-    count++;
-    cx += dir.x; cy += dir.y; cz += dir.z;
+): LineInfo {
+  // Count forward
+  let forward = 0;
+  let fx = x + dir.x, fy = y + dir.y, fz = z + dir.z;
+  while (inBounds(fx, fy, fz, c) && getStone(b, fx, fy, fz, c) === color) {
+    forward++;
+    fx += dir.x; fy += dir.y; fz += dir.z;
   }
-  return count;
+  const forwardOpen = inBounds(fx, fy, fz, c) && getStone(b, fx, fy, fz, c) === Stone.EMPTY;
+
+  // Count backward
+  let backward = 0;
+  const negDir = { x: -dir.x, y: -dir.y, z: -dir.z };
+  let bx = x + negDir.x, by = y + negDir.y, bz = z + negDir.z;
+  while (inBounds(bx, by, bz, c) && getStone(b, bx, by, bz, c) === color) {
+    backward++;
+    bx += negDir.x; by += negDir.y; bz += negDir.z;
+  }
+  const backwardOpen = inBounds(bx, by, bz, c) && getStone(b, bx, by, bz, c) === Stone.EMPTY;
+
+  const count = 1 + forward + backward; // include origin
+  const openEnds = (forwardOpen ? 1 : 0) + (backwardOpen ? 1 : 0);
+
+  return { count, openEnds };
 }
 
 /**
- * Score a single empty cell for a given color.
- * Returns the maximum chain length achievable through this cell in any direction.
- * Higher score = more valuable move.
+ * Score a line pattern. Higher = more dangerous/valuable.
+ * Open lines are exponentially more valuable than closed ones.
  */
+function lineScore(count: number, openEnds: number, winLength: number): number {
+  if (count >= winLength) return 100000; // WIN
+  if (openEnds === 0) return 0; // closed = dead
+
+  // Open-N scores (exponential growth)
+  const scores: Record<number, number[]> = {
+    // [open-1, open-2] scores for each count
+    1: [1, 2],        // 1 stone: barely matters
+    2: [5, 12],       // 2 stones: building
+    3: [20, 60],      // 3 stones: getting dangerous
+    4: [100, 500],    // 4 stones: very dangerous
+    5: [1000, 10000], // 5 stones: one move from winning
+  };
+
+  const row = scores[Math.min(count, 5)];
+  if (!row) return count * 100;
+  return openEnds === 2 ? row[1] : row[0];
+}
+
+// ─── Board evaluation ───
+
+/**
+ * Evaluate the entire board position for `color`.
+ * Sums up line scores in all 13 directions.
+ */
+function evaluateBoard(b: number[], c: BoardConfig, color: Stone): number {
+  let total = 0;
+  const seen = new Set<string>();
+
+  for (let z = 0; z < c.sizeZ; z++) {
+    for (let y = 0; y < c.sizeY; y++) {
+      for (let x = 0; x < c.sizeX; x++) {
+        if (getStone(b, x, y, z, c) !== color) continue;
+
+        for (const dir of DIRECTIONS) {
+          // Only count each line once (from its starting cell)
+          const sx = x - dir.x, sy = y - dir.y, sz = z - dir.z;
+          if (inBounds(sx, sy, sz, c) && getStone(b, sx, sy, sz, c) === color) continue;
+
+          const key = `${x},${y},${z},${dir.x},${dir.y},${dir.z}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          const info = analyzeLine(b, c, x, y, z, dir, color);
+          total += lineScore(info.count, info.openEnds, c.winLength);
+        }
+      }
+    }
+  }
+
+  return total;
+}
+
+/**
+ * Evaluate a single empty cell: how much value does placing `color` here add?
+ * This is the delta evaluation — much faster than full board eval.
+ */
+function evaluateMove(
+  b: number[], c: BoardConfig,
+  x: number, y: number, z: number,
+  color: Stone, oppColor: Stone,
+): number {
+  let score = 0;
+
+  for (const dir of DIRECTIONS) {
+    const info = analyzeLine(b, c, x, y, z, dir, color);
+    const infoOpp = analyzeLine(b, c, x, y, z, dir, oppColor);
+
+    // Offensive value: what chains does this stone create/extend?
+    score += lineScore(info.count, info.openEnds, c.winLength) * 1.0;
+
+    // Defensive value: what opponent chains does this stone block?
+    score += lineScore(infoOpp.count, infoOpp.openEnds, c.winLength) * 1.05;
+  }
+
+  // Center bonus: cells closer to center participate in more directions
+  const cx = (c.sizeX - 1) / 2, cy = (c.sizeY - 1) / 2, cz = (c.sizeZ - 1) / 2;
+  const dist = Math.abs(x - cx) / c.sizeX + Math.abs(y - cy) / c.sizeY + Math.abs(z - cz) / c.sizeZ;
+  score += (1 - dist) * 3;
+
+  return score;
+}
+
+// ─── Candidate generation ───
+
+/**
+ * Get all empty cells adjacent to existing stones (within 2 cells).
+ * This dramatically reduces the search space from 1000 to ~50-100.
+ */
+function getCandidates(b: number[], c: BoardConfig): Vec3[] {
+  const candidates: Vec3[] = [];
+  const seen = new Set<number>();
+  const RADIUS = 2;
+
+  for (let z = 0; z < c.sizeZ; z++) {
+    for (let y = 0; y < c.sizeY; y++) {
+      for (let x = 0; x < c.sizeX; x++) {
+        if (getStone(b, x, y, z, c) === Stone.EMPTY) continue;
+
+        // For each stone, add empty neighbors within radius
+        for (let dz = -RADIUS; dz <= RADIUS; dz++) {
+          for (let dy = -RADIUS; dy <= RADIUS; dy++) {
+            for (let dx = -RADIUS; dx <= RADIUS; dx++) {
+              if (dx === 0 && dy === 0 && dz === 0) continue;
+              const nx = x + dx, ny = y + dy, nz = z + dz;
+              if (!inBounds(nx, ny, nz, c)) continue;
+              if (getStone(b, nx, ny, nz, c) !== Stone.EMPTY) continue;
+
+              const idx = nz * c.sizeY * c.sizeX + ny * c.sizeX + nx;
+              if (seen.has(idx)) continue;
+              seen.add(idx);
+              candidates.push({ x: nx, y: ny, z: nz });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // If board is empty, return center area
+  if (candidates.length === 0) {
+    const cx = Math.floor(c.sizeX / 2);
+    const cy = Math.floor(c.sizeY / 2);
+    const cz = Math.floor(c.sizeZ / 2);
+    candidates.push({ x: cx, y: cy, z: cz });
+  }
+
+  return candidates;
+}
+
+// ─── Main AI entry points ───
+
+export function computeAiMove(req: AiRequestPayload): AiResponsePayload {
+  const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
+  if (currentPlayer !== aiColor) return { moves: [] };
+
+  const aiStone = aiColor as unknown as Stone;
+  const oppStone = (aiColor === Player.BLACK ? Player.WHITE : Player.BLACK) as unknown as Stone;
+  const moves: Vec3[] = [];
+  const workingBoard = [...board];
+
+  for (let m = 0; m < stonesToPlace; m++) {
+    const move = pickBestMoveAdvanced(workingBoard, config, aiStone, oppStone);
+    if (!move) break;
+    moves.push(move);
+    setStone(workingBoard, move.x, move.y, move.z, config, aiStone);
+  }
+
+  return { moves };
+}
+
+export function computeAiMoveWithMemory(
+  req: AiRequestPayload, memory: AiMemory,
+): AiResponsePayload {
+  const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
+  if (currentPlayer !== aiColor) return { moves: [] };
+
+  const aiStone = aiColor as unknown as Stone;
+  const oppStone = (aiColor === Player.BLACK ? Player.WHITE : Player.BLACK) as unknown as Stone;
+  const moves: Vec3[] = [];
+  const workingBoard = [...board];
+
+  for (let m = 0; m < stonesToPlace; m++) {
+    const move = pickBestMoveAdvanced(workingBoard, config, aiStone, oppStone, memory);
+    if (!move) break;
+    moves.push(move);
+    setStone(workingBoard, move.x, move.y, move.z, config, aiStone);
+  }
+
+  return { moves };
+}
+
+/**
+ * Advanced move picker with:
+ * 1. Delta evaluation (fast per-cell scoring)
+ * 2. Threat-based prioritization (win > block > build)
+ * 3. 1-ply lookahead (check if opponent can win after our move)
+ * 4. Memory bonus
+ */
+function pickBestMoveAdvanced(
+  b: number[], c: BoardConfig,
+  aiStone: Stone, oppStone: Stone,
+  memory?: AiMemory,
+): Vec3 | null {
+  const candidates = getCandidates(b, c);
+  if (candidates.length === 0) return null;
+
+  // Phase 1: Score all candidates
+  type ScoredMove = { pos: Vec3; score: number; aiScore: number; oppScore: number };
+  const scored: ScoredMove[] = [];
+
+  for (const pos of candidates) {
+    const aiScore = evaluateMove(b, c, pos.x, pos.y, pos.z, aiStone, oppStone);
+    const oppScore = evaluateMove(b, c, pos.x, pos.y, pos.z, oppStone, aiStone);
+    let score = aiScore + oppScore * 1.05; // slight defensive weight
+
+    // Memory bonus
+    if (memory) {
+      score += memory.query(b, c, pos.x, pos.y, pos.z) * 0.5;
+    }
+
+    scored.push({ pos, score, aiScore, oppScore });
+  }
+
+  // Phase 2: Check for immediate wins
+  for (const s of scored) {
+    if (s.aiScore >= 100000) return s.pos; // Can win right now
+  }
+
+  // Phase 3: Block opponent's immediate wins
+  const oppWins = scored.filter(s => s.oppScore >= 100000);
+  if (oppWins.length > 0) {
+    // If opponent has multiple winning moves, we can't block all — pick best offensive
+    if (oppWins.length > 1) {
+      // Try to create our own winning threat instead
+      scored.sort((a, b) => b.aiScore - a.aiScore);
+      return scored[0].pos;
+    }
+    return oppWins[0].pos; // Block the one winning move
+  }
+
+  // Phase 4: 1-ply lookahead — for top candidates, check if opponent can win after
+  scored.sort((a, b) => b.score - a.score);
+  const topN = scored.slice(0, Math.min(10, scored.length));
+
+  let bestMove = topN[0].pos;
+  let bestEval = -Infinity;
+
+  for (const candidate of topN) {
+    // Simulate our move
+    const simBoard = [...b];
+    setStone(simBoard, candidate.pos.x, candidate.pos.y, candidate.pos.z, c, aiStone);
+
+    // Check if opponent can win next
+    const oppCandidates = getCandidates(simBoard, c);
+    let oppBestScore = 0;
+    for (const oc of oppCandidates) {
+      const os = evaluateMove(simBoard, c, oc.x, oc.y, oc.z, oppStone, aiStone);
+      if (os > oppBestScore) oppBestScore = os;
+    }
+
+    // Evaluate our position after this move
+    const ourScore = evaluateBoard(simBoard, c, aiStone) - evaluateBoard(simBoard, c, oppStone);
+
+    // Penalize moves that let opponent win
+    const eval_ = oppBestScore >= 100000 ? ourScore - 50000 : ourScore + candidate.score;
+
+    if (eval_ > bestEval) {
+      bestEval = eval_;
+      bestMove = candidate.pos;
+    }
+  }
+
+  return bestMove;
+}
+
+// Keep the old scoreCell export for backward compatibility
 export function scoreCell(
   board: number[], config: BoardConfig,
   x: number, y: number, z: number,
@@ -52,210 +331,9 @@ export function scoreCell(
 ): number {
   let best = 0;
   for (const dir of DIRECTIONS) {
-    const forward = countDir(board, config, x, y, z, dir, color);
-    const reverse = countDir(board, config, x, y, z, { x: -dir.x, y: -dir.y, z: -dir.z }, color);
-    const total = 1 + forward + reverse; // 1 = the cell itself
-    if (total > best) best = total;
+    const info = analyzeLine(board, config, x, y, z, dir, color);
+    const s = lineScore(info.count, info.openEnds, config.winLength);
+    if (s > best) best = s;
   }
   return best;
-}
-
-/**
- * Dummy AI — greedy defense heuristic.
- *
- * Strategy:
- * 1. For each empty cell, compute:
- *    - `attackScore`: chain length if AI places here (offense)
- *    - `defendScore`: chain length if OPPONENT places here (threat)
- * 2. If any defendScore >= 5 (opponent about to win), block it immediately.
- * 3. If any attackScore >= 5 (AI can win), take it.
- * 4. Otherwise, pick the cell with the highest weighted score:
- *    score = attackScore * 1.0 + defendScore * 1.1  (slightly favor defense)
- * 5. If all scores are 0 (empty board or no threats), pick center-ish random.
- *
- * When placing 2 stones per turn, picks the best move first,
- * then re-evaluates the board for the second move.
- */
-export function computeAiMove(req: AiRequestPayload): AiResponsePayload {
-  const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
-
-  // Only compute if it's the AI's turn
-  if (currentPlayer !== aiColor) {
-    return { moves: [] };
-  }
-
-  const opponentColor = aiColor === Player.BLACK ? Player.WHITE : Player.BLACK;
-  const moves: Vec3[] = [];
-  // Work on a mutable copy so second move sees the first
-  const workingBoard = [...board];
-
-  for (let m = 0; m < stonesToPlace; m++) {
-    const move = pickBestMove(workingBoard, config, aiColor as unknown as Stone, opponentColor as unknown as Stone);
-    if (!move) break;
-    moves.push(move);
-    // Apply to working board so next evaluation accounts for it
-    workingBoard[move.z * config.sizeY * config.sizeX + move.y * config.sizeX + move.x] = aiColor as unknown as Stone;
-  }
-
-  return { moves };
-}
-
-/**
- * AI move computation with memory enhancement.
- * Combines greedy evaluation with historical win-rate bonus from memory.
- */
-export function computeAiMoveWithMemory(
-  req: AiRequestPayload, memory: AiMemory,
-): AiResponsePayload {
-  const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
-
-  if (currentPlayer !== aiColor) {
-    return { moves: [] };
-  }
-
-  const opponentColor = aiColor === Player.BLACK ? Player.WHITE : Player.BLACK;
-  const moves: Vec3[] = [];
-  const workingBoard = [...board];
-
-  for (let m = 0; m < stonesToPlace; m++) {
-    const move = pickBestMoveWithMemory(workingBoard, config, aiColor as unknown as Stone, opponentColor as unknown as Stone, memory);
-    if (!move) break;
-    moves.push(move);
-    workingBoard[move.z * config.sizeY * config.sizeX + move.y * config.sizeX + move.x] = aiColor as unknown as Stone;
-  }
-
-  return { moves };
-}
-
-function pickBestMove(
-  board: number[], config: BoardConfig,
-  aiStone: Stone, opponentStone: Stone,
-): Vec3 | null {
-  let bestScore = -1;
-  let bestMoves: Vec3[] = [];
-
-  for (let z = 0; z < config.sizeZ; z++) {
-    for (let y = 0; y < config.sizeY; y++) {
-      for (let x = 0; x < config.sizeX; x++) {
-        if (board[z * config.sizeY * config.sizeX + y * config.sizeX + x] !== Stone.EMPTY) continue;
-
-        const attack = scoreCell(board, config, x, y, z, aiStone);
-        const defend = scoreCell(board, config, x, y, z, opponentStone);
-
-        // Weighted score: slightly favor defense
-        const score = attack * 1.0 + defend * 1.1;
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestMoves = [{ x, y, z }];
-        } else if (score === bestScore && score > 0) {
-          bestMoves.push({ x, y, z });
-        }
-      }
-    }
-  }
-
-  // No scored moves (empty board) — pick near center
-  if (bestScore <= 0) {
-    const cx = Math.floor(config.sizeX / 2);
-    const cy = Math.floor(config.sizeY / 2);
-    const cz = Math.floor(config.sizeZ / 2);
-    // Try center, then neighbors
-    const candidates = [
-      { x: cx, y: cy, z: cz },
-      { x: cx + 1, y: cy, z: cz },
-      { x: cx, y: cy + 1, z: cz },
-      { x: cx, y: cy, z: cz + 1 },
-      { x: cx - 1, y: cy, z: cz },
-    ];
-    for (const c of candidates) {
-      if (inBounds(c.x, c.y, c.z, config)
-        && board[c.z * config.sizeY * config.sizeX + c.y * config.sizeX + c.x] === Stone.EMPTY) {
-        return c;
-      }
-    }
-    // Fallback: first empty cell
-    for (let z = 0; z < config.sizeZ; z++) {
-      for (let y = 0; y < config.sizeY; y++) {
-        for (let x = 0; x < config.sizeX; x++) {
-          if (board[z * config.sizeY * config.sizeX + y * config.sizeX + x] === Stone.EMPTY) {
-            return { x, y, z };
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  // Pick randomly among equally-scored best moves
-  return bestMoves[Math.floor(Math.random() * bestMoves.length)];
-}
-
-/**
- * Memory-enhanced move picker.
- * Combines greedy score with historical win-rate bonus from memory.
- */
-function pickBestMoveWithMemory(
-  board: number[], config: BoardConfig,
-  aiStone: Stone, opponentStone: Stone,
-  memory: AiMemory,
-): Vec3 | null {
-  let bestScore = -1;
-  let bestMoves: Vec3[] = [];
-
-  for (let z = 0; z < config.sizeZ; z++) {
-    for (let y = 0; y < config.sizeY; y++) {
-      for (let x = 0; x < config.sizeX; x++) {
-        if (board[z * config.sizeY * config.sizeX + y * config.sizeX + x] !== Stone.EMPTY) continue;
-
-        const attack = scoreCell(board, config, x, y, z, aiStone);
-        const defend = scoreCell(board, config, x, y, z, opponentStone);
-
-        // Memory bonus: historical win rate at this position
-        const memBonus = memory.query(board, config, x, y, z);
-
-        // Combined score: greedy + memory
-        const score = attack * 1.0 + defend * 1.1 + memBonus * 0.8;
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestMoves = [{ x, y, z }];
-        } else if (score === bestScore && score > 0) {
-          bestMoves.push({ x, y, z });
-        }
-      }
-    }
-  }
-
-  if (bestScore <= 0) {
-    // Same fallback as non-memory version
-    const cx = Math.floor(config.sizeX / 2);
-    const cy = Math.floor(config.sizeY / 2);
-    const cz = Math.floor(config.sizeZ / 2);
-    const candidates = [
-      { x: cx, y: cy, z: cz },
-      { x: cx + 1, y: cy, z: cz },
-      { x: cx, y: cy + 1, z: cz },
-      { x: cx, y: cy, z: cz + 1 },
-      { x: cx - 1, y: cy, z: cz },
-    ];
-    for (const c of candidates) {
-      if (c.x >= 0 && c.x < config.sizeX && c.y >= 0 && c.y < config.sizeY && c.z >= 0 && c.z < config.sizeZ
-        && board[c.z * config.sizeY * config.sizeX + c.y * config.sizeX + c.x] === Stone.EMPTY) {
-        return c;
-      }
-    }
-    for (let z = 0; z < config.sizeZ; z++) {
-      for (let y = 0; y < config.sizeY; y++) {
-        for (let x = 0; x < config.sizeX; x++) {
-          if (board[z * config.sizeY * config.sizeX + y * config.sizeX + x] === Stone.EMPTY) {
-            return { x, y, z };
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  return bestMoves[Math.floor(Math.random() * bestMoves.length)];
 }
