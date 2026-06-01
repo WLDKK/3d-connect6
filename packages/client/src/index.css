@@ -182,7 +182,7 @@ body {
     inset 0 1px 0 rgba(255,255,255,0.8),
     inset 0 -1px 0 rgba(0,0,0,0.04),
     0 4px 16px rgba(0,0,0,0.06);
-  color: #1e293b;
+  color: #1a1a1a;
 }
 [data-theme="light"] .mystic-card::before {
   background: linear-gradient(150deg, rgba(0,0,0,0.08), rgba(0,0,0,0.02), rgba(0,0,0,0.06));
@@ -190,6 +190,34 @@ body {
 [data-theme="light"] .mystic-card::after {
   background: linear-gradient(180deg, rgba(255,255,255,0.3), transparent 40%);
 }
+
+/* Light mode: darken all text inside cards */
+[data-theme="light"] .mystic-card .text-slate-200 { color: #1a1a1a; }
+[data-theme="light"] .mystic-card .text-slate-100 { color: #111; }
+[data-theme="light"] .mystic-card .text-slate-500 { color: #444; }
+[data-theme="light"] .mystic-card .text-slate-600 { color: #555; }
+[data-theme="light"] .mystic-card .text-slate-700 { color: #666; }
+[data-theme="light"] .mystic-card .text-slate-400 { color: #333; }
+[data-theme="light"] .mystic-card .text-cyan-300 { color: #0e7490; }
+[data-theme="light"] .mystic-card .text-purple-300 { color: #7e22ce; }
+[data-theme="light"] .mystic-card .text-orange-300 { color: #c2410c; }
+[data-theme="light"] .mystic-card .text-emerald-300 { color: #047857; }
+[data-theme="light"] .mystic-card .text-red-400\/80 { color: #b91c1c; }
+
+/* Light mode: darker select/input text */
+[data-theme="light"] .mystic-card select { color: #1a1a1a; background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .mystic-card select option { background: #f5f0e6; color: #1a1a1a; }
+[data-theme="light"] .mystic-card input[type="text"] { color: #1a1a1a; background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .mystic-card input[type="text"]::placeholder { color: #999; }
+[data-theme="light"] .mystic-card input[type="checkbox"] { accent-color: #7e22ce; }
+
+/* Light mode: header */
+[data-theme="light"] .bg-gradient-to-r.from-white.via-slate-200.to-slate-400 {
+  background-image: linear-gradient(to right, #111, #333, #555);
+}
+[data-theme="light"] .text-slate-600 { color: #888; }
+[data-theme="light"] .text-slate-700 { color: #999; }
+[data-theme="light"] .text-slate-800 { color: #aaa; }
 
 /* ── Fade up animation ── */
 @keyframes fadeUp {
