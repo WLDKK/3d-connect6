@@ -18,15 +18,21 @@ body {
   inset: 0;
   z-index: 50;
   overflow: auto;
+  background-color: #0a0806;
   background-image:
-    linear-gradient(180deg, rgba(2,2,3,0.92) 0%, rgba(1,1,2,0.97) 46%, rgba(0,0,0,1) 100%),
-    linear-gradient(132deg, rgba(88,132,174,0.015) 0%, transparent 32%, rgba(126,196,255,0.01) 74%, transparent 100%);
-  background-color: #000;
+    linear-gradient(180deg, rgba(10,8,6,0.95) 0%, rgba(8,6,4,0.98) 50%, rgba(6,4,2,1) 100%),
+    linear-gradient(135deg, rgba(60,40,20,0.06) 25%, transparent 25%, transparent 50%, rgba(60,40,20,0.06) 50%, rgba(60,40,20,0.06) 75%, transparent 75%),
+    linear-gradient(45deg, rgba(60,40,20,0.04) 25%, transparent 25%, transparent 50%, rgba(60,40,20,0.04) 50%, rgba(60,40,20,0.04) 75%, transparent 75%);
+  background-size: 100% 100%, 48px 48px, 48px 48px;
 }
 
 [data-theme="light"] .lobby-root {
+  background-color: #f0e8da;
   background-image:
-    linear-gradient(180deg, rgba(245,240,230,1) 0%, rgba(240,235,225,1) 100%);
+    linear-gradient(180deg, rgba(240,232,218,1) 0%, rgba(235,225,210,1) 100%),
+    linear-gradient(135deg, rgba(180,150,110,0.12) 25%, transparent 25%, transparent 50%, rgba(180,150,110,0.12) 50%, rgba(180,150,110,0.12) 75%, transparent 75%),
+    linear-gradient(45deg, rgba(180,150,110,0.08) 25%, transparent 25%, transparent 50%, rgba(180,150,110,0.08) 50%, rgba(180,150,110,0.08) 75%, transparent 75%);
+  background-size: 100% 100%, 48px 48px, 48px 48px;
 }
 
 /* ── Atmospheric fog layers ── */
@@ -34,7 +40,7 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 60% 50% at 25% 45%, rgba(126,196,255,0.025), transparent);
+  background: radial-gradient(ellipse 60% 50% at 25% 45%, rgba(160,120,60,0.04), transparent);
   filter: blur(120px);
   animation: fogDriftA 36s ease-in-out infinite alternate;
 }
@@ -43,7 +49,7 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 55% 45% at 75% 30%, rgba(88,132,174,0.02), transparent);
+  background: radial-gradient(ellipse 55% 45% at 75% 30%, rgba(120,90,40,0.03), transparent);
   filter: blur(140px);
   animation: fogDriftB 42s ease-in-out infinite alternate;
 }
@@ -90,16 +96,19 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.025;
+  opacity: 0.04;
   background-image:
-    linear-gradient(rgba(126,196,255,0.2) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(126,196,255,0.2) 1px, transparent 1px);
+    linear-gradient(rgba(160,120,60,0.15) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(160,120,60,0.15) 1px, transparent 1px);
   background-size: 64px 64px;
+  transform: rotate(45deg) scale(1.5);
 }
 
-[data-theme="light"] .lobby-fog-a,
+[data-theme="light"] .lobby-fog-a {
+  background: radial-gradient(ellipse 60% 50% at 25% 45%, rgba(180,140,80,0.06), transparent);
+}
 [data-theme="light"] .lobby-fog-b {
-  opacity: 0.5;
+  background: radial-gradient(ellipse 55% 45% at 75% 30%, rgba(160,120,60,0.04), transparent);
 }
 [data-theme="light"] .lobby-vignette {
   background:
@@ -107,7 +116,7 @@ body {
     linear-gradient(180deg, transparent 0%, transparent 60%, rgba(240,235,225,0.4) 100%);
 }
 [data-theme="light"] .lobby-noise { opacity: 0.01; }
-[data-theme="light"] .lobby-grid { opacity: 0.015; background-image: linear-gradient(rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.06) 1px, transparent 1px); }
+[data-theme="light"] .lobby-grid { opacity: 0.06; background-image: linear-gradient(rgba(140,100,50,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(140,100,50,0.15) 1px, transparent 1px); }
 
 /* ── Mystic card — Apple-style glassmorphism ── */
 .mystic-card {

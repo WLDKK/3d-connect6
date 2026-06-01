@@ -36,7 +36,7 @@ function MysticSelect({ label, value, onChange, options }: {
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-white/[0.04] text-slate-200 px-3 py-2 pr-7 rounded-lg outline-none border border-white/[0.06] hover:border-white/[0.12] font-mono text-xs appearance-none cursor-pointer transition-all duration-300 focus:border-cyan-400/30 focus:shadow-[0_0_12px_rgba(126,196,255,0.06)]"
+          className="w-full bg-white/[0.04] text-slate-200 px-3 py-2 pr-7 rounded-lg outline-none border border-white/[0.06] hover:border-white/[0.12] font-mono text-xs appearance-none cursor-pointer transition-all duration-300 focus:border-amber-400/30 focus:shadow-[0_0_12px_rgba(217,160,60,0.06)]"
         >
           {options.map((o) => (
             <option key={o.id || o.value} value={o.id || o.value} className="bg-[#0a0e17]">{o.label}</option>
@@ -85,10 +85,10 @@ function MysticBtn({ onClick, children, color = "cyan", disabled }: {
   onClick: () => void; children: React.ReactNode; color?: string; disabled?: boolean;
 }) {
   const colorMap: Record<string, string> = {
-    cyan: "from-cyan-400/20 to-blue-500/10 border-cyan-400/15 hover:border-cyan-400/30 hover:shadow-[0_0_20px_rgba(126,196,255,0.08)] text-cyan-300",
-    purple: "from-purple-400/15 to-violet-500/10 border-purple-400/15 hover:border-purple-400/30 hover:shadow-[0_0_20px_rgba(168,85,247,0.08)] text-purple-300",
-    orange: "from-orange-400/15 to-amber-500/10 border-orange-400/15 hover:border-orange-400/30 hover:shadow-[0_0_20px_rgba(251,146,60,0.08)] text-orange-300",
-    green: "from-emerald-400/15 to-green-500/10 border-emerald-400/15 hover:border-emerald-400/30 hover:shadow-[0_0_20px_rgba(52,211,153,0.08)] text-emerald-300",
+    cyan: "from-amber-500/15 to-yellow-600/10 border-amber-400/15 hover:border-amber-400/30 hover:shadow-[0_0_20px_rgba(217,160,60,0.1)] text-amber-300",
+    purple: "from-rose-400/15 to-pink-500/10 border-rose-400/15 hover:border-rose-400/30 hover:shadow-[0_0_20px_rgba(251,113,133,0.08)] text-rose-300",
+    orange: "from-orange-400/15 to-amber-500/10 border-orange-400/15 hover:border-orange-400/30 hover:shadow-[0_0_20px_rgba(251,146,60,0.1)] text-orange-300",
+    green: "from-teal-400/15 to-emerald-500/10 border-teal-400/15 hover:border-teal-400/30 hover:shadow-[0_0_20px_rgba(45,212,191,0.08)] text-teal-300",
   };
 
   return (
@@ -148,7 +148,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
             <p className="text-[11px] font-mono tracking-[0.3em] uppercase text-slate-600">
               Connect6 · 3D Strategy
             </p>
-            <div className="mt-5 mx-auto w-24 h-px bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent" />
+            <div className="mt-5 mx-auto w-24 h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
           </div>
 
           {/* Mode cards */}
@@ -197,7 +197,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
                   onChange={(e) => setRoomId(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                   placeholder="输入房间名..."
-                  className="flex-1 bg-white/[0.04] text-slate-200 px-3 py-2.5 rounded-lg outline-none border border-white/[0.06] hover:border-white/[0.12] focus:border-cyan-400/30 placeholder-slate-600 font-mono text-xs transition-all duration-300"
+                  className="flex-1 bg-white/[0.04] text-slate-200 px-3 py-2.5 rounded-lg outline-none border border-white/[0.06] hover:border-white/[0.12] focus:border-amber-400/30 placeholder-slate-600 font-mono text-xs transition-all duration-300"
                 />
                 <button
                   onClick={handleSubmit}
