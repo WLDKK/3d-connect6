@@ -397,6 +397,9 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
 
   return (
     <div className={`w-full h-full relative ${bgClass}`}>
+      <div style={{ position: "absolute", top: 80, left: 10, zIndex: 999, color: "lime", fontSize: 12, fontFamily: "monospace", pointerEvents: "none" }}>
+        DEBUG: GameContent rendered | mode={gameMode} | aiColor={aiColor}
+      </div>
       {roomId && <MultiplayerSync roomId={roomId} />}
       {/* Normal AI: one AI opponent */}
       {gameMode === "normal" && aiColor && (
@@ -414,6 +417,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         camera={{ position: [18, -18, 16], fov: 45, up: [0, 0, 1] }}
         gl={{ antialias: true, alpha: false }}
         dpr={[1, 2]}
+        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
       >
         <color attach="background" args={[bgColor]} />
         <fog attach="fog" args={[bgColor, 25, 60]} />
