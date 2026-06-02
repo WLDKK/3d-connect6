@@ -12,10 +12,9 @@ interface AiControllerProps {
   onThinking?: (thinking: boolean) => void;
 }
 
+import { API_BASE } from "../config";
+
 const AI_API_TIMEOUT = 120000; // 2 minutes
-const API_BASE = import.meta.env.VITE_API_URL || (location.hostname.includes("pages.dev")
-  ? "https://connect6-server.1310205058.workers.dev"
-  : "");
 
 async function callServerAi(req: AiRequestPayload): Promise<AiResponsePayload | null> {
   try {

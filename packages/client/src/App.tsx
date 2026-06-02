@@ -17,17 +17,7 @@ import { useAiMemoryActions, useMemoryStats } from "./hooks/useAiMemory";
 import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, resetReplay } from "./hooks/useReplayStore";
 import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice, type Vec3 } from "@connect6/shared";
 
-/**
- * API base URL for Worker (WebSocket + REST).
- * Set VITE_API_URL in .env for separate-domain deployment.
- * Defaults to current origin (works with Vite proxy in dev).
- */
-const API_BASE = import.meta.env.VITE_API_URL || (location.hostname.includes("pages.dev")
-  ? "https://connect6-server.1310205058.workers.dev"
-  : "");
-const WS_BASE = API_BASE
-  ? API_BASE.replace(/^http/, "ws")
-  : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
+import { API_BASE, WS_BASE } from "./config";
 
 const AI_MODEL_LABELS: Record<AiModelId, string> = {
   "local": "本地 AI",
@@ -379,10 +369,10 @@ export default function App() {
     else setAiColor(color === "black" ? Player.WHITE : Player.BLACK);
   }, [store, disconnect]);
 
-  const handleTraining = useCallback((analyze: boolean) => {
+  const handleTraining = useCallback((analyze: boolean, model: AiModelId) => {
     disconnect(); store.reset(); resetReplay();
     setRoomId(null); setInGame(true); setAiColor(null);
-    setAiModel("local"); setGameMode("training"); setTrainingAnalyze(analyze);
+    setAiModel(model); setGameMode("training"); setTrainingAnalyze(analyze);
   }, [store, disconnect]);
 
   const handleDualAi = useCallback((modelBlack: AiModelId, modelWhite: AiModelId) => {

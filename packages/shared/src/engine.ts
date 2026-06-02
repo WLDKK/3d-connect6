@@ -13,7 +13,7 @@ import {
  * Each pair (d, -d) covers one axis of alignment.
  * We only store the 13 "positive" half-spaces and search both ways.
  */
-const DIRECTIONS: readonly Direction[] = [
+export const DIRECTIONS: readonly Direction[] = [
   // 3 orthogonal axes
   { x: 1, y: 0, z: 0 },  // X
   { x: 0, y: 1, z: 0 },  // Y

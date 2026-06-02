@@ -7,47 +7,49 @@ interface HoverIndicatorProps {
 }
 
 const GLOW_COLOR = new THREE.Color("#00f0ff");
+const armLen = 0.65;
+const armThick = 0.02;
 
 /**
- * Renders a glowing crosshair at the hovered grid cell.
- * Pulses gently with time.
+ * Glowing crosshair at the hovered grid cell.
+ * All three arms pulse together.
  */
 export function HoverIndicator({ position }: HoverIndicatorProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const matRef = useRef<THREE.MeshBasicMaterial>(null);
+  const xMat = useRef<THREE.MeshBasicMaterial>(null);
+  const yMat = useRef<THREE.MeshBasicMaterial>(null);
+  const zMat = useRef<THREE.MeshBasicMaterial>(null);
 
   useFrame(({ clock }) => {
-    if (!groupRef.current || !matRef.current) return;
+    if (!groupRef.current) return;
     if (!position) {
       groupRef.current.visible = false;
       return;
     }
     groupRef.current.visible = true;
     groupRef.current.position.set(...position);
-    // Pulse opacity
-    matRef.current.opacity = 0.3 + Math.sin(clock.elapsedTime * 4) * 0.15;
+    const opacity = 0.3 + Math.sin(clock.elapsedTime * 4) * 0.15;
+    if (xMat.current) xMat.current.opacity = opacity;
+    if (yMat.current) yMat.current.opacity = opacity;
+    if (zMat.current) zMat.current.opacity = opacity;
   });
-
-  const armLen = 0.65;
-  const armThick = 0.02;
 
   return (
     <group ref={groupRef}>
-      {/* 3 axis arms of the crosshair */}
       {/* X arm */}
       <mesh>
         <boxGeometry args={[armLen * 2, armThick, armThick]} />
-        <meshBasicMaterial ref={matRef} color={GLOW_COLOR} transparent opacity={0.4} />
+        <meshBasicMaterial ref={xMat} color={GLOW_COLOR} transparent opacity={0.4} />
       </mesh>
       {/* Y arm */}
       <mesh>
         <boxGeometry args={[armThick, armLen * 2, armThick]} />
-        <meshBasicMaterial color={GLOW_COLOR} transparent opacity={0.4} />
+        <meshBasicMaterial ref={yMat} color={GLOW_COLOR} transparent opacity={0.4} />
       </mesh>
       {/* Z arm */}
       <mesh>
         <boxGeometry args={[armThick, armThick, armLen * 2]} />
-        <meshBasicMaterial color={GLOW_COLOR} transparent opacity={0.4} />
+        <meshBasicMaterial ref={zMat} color={GLOW_COLOR} transparent opacity={0.4} />
       </mesh>
       {/* Center sphere */}
       <mesh>

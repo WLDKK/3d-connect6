@@ -57,10 +57,10 @@ export function useComputeOccluded() {
       for (let d = step; d < totalDist - step; d += step) {
         tempPoint.copy(_ray.origin).addScaledVector(_ray.direction, d);
 
-        // Convert to grid coordinates
-        const gx = Math.round(tempPoint.x + ((sizeX - 1)) / 2);
-        const gy = Math.round(tempPoint.y + ((sizeY - 1)) / 2);
-        const gz = Math.round(tempPoint.z + ((sizeZ - 1)) / 2);
+        // Convert to grid coordinates (matching BoardGrid.worldToGrid)
+        const gx = Math.round((tempPoint.x - ((sizeX - 1) * CELL_SIZE) / 2) / -CELL_SIZE);
+        const gy = Math.round((tempPoint.y + ((sizeY - 1) * CELL_SIZE) / 2) / CELL_SIZE);
+        const gz = Math.round((tempPoint.z + ((sizeZ - 1) * CELL_SIZE) / 2) / CELL_SIZE);
 
         // Bounds check
         if (gx < 0 || gx >= sizeX || gy < 0 || gy >= sizeY || gz < 0 || gz >= sizeZ) continue;

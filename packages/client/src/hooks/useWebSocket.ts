@@ -188,11 +188,6 @@ function sendMove(x: number, y: number, z: number) {
   ws.send(JSON.stringify({ type: MsgType.MOVE, payload }));
 }
 
-function sendJoin() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: MsgType.JOIN, payload: {} }));
-}
-
 function sendResetRequest() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: MsgType.RESET_REQUEST, payload: {} }));
@@ -228,7 +223,6 @@ export function useWebSocketActions() {
   const connectRef = useRef(connect);
   const disconnectRef = useRef(disconnect);
   const sendMoveRef = useRef(sendMove);
-  const sendJoinRef = useRef(sendJoin);
   const sendResetRequestRef = useRef(sendResetRequest);
   const sendResetConfirmRef = useRef(sendResetConfirm);
   const sendReadyRef = useRef(sendReady);
@@ -244,7 +238,6 @@ export function useWebSocketActions() {
     connect: connectRef.current,
     disconnect: disconnectRef.current,
     sendMove: sendMoveRef.current,
-    sendJoin: sendJoinRef.current,
     sendResetRequest: sendResetRequestRef.current,
     sendResetConfirm: sendResetConfirmRef.current,
     sendReady: sendReadyRef.current,

@@ -6,8 +6,7 @@ import {
 } from "@connect6/shared";
 import { useGameSnapshot } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
-
-const API_BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE } from "../config";
 
 interface Analysis {
   /** Best move coordinates */

@@ -1,14 +1,6 @@
 import { BoardConfig, Player, Stone, Vec3, Direction, AiRequestPayload, AiResponsePayload } from "./types";
 import { AiMemory } from "./ai-memory";
-
-const DIRECTIONS: readonly Direction[] = [
-  { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 },
-  { x: 1, y: 1, z: 0 }, { x: 1, y: -1, z: 0 },
-  { x: 1, y: 0, z: 1 }, { x: 1, y: 0, z: -1 },
-  { x: 0, y: 1, z: 1 }, { x: 0, y: 1, z: -1 },
-  { x: 1, y: 1, z: 1 }, { x: 1, y: 1, z: -1 },
-  { x: 1, y: -1, z: 1 }, { x: 1, y: -1, z: -1 },
-];
+import { DIRECTIONS } from "./engine";
 
 function inBounds(x: number, y: number, z: number, c: BoardConfig): boolean {
   return x >= 0 && x < c.sizeX && y >= 0 && y < c.sizeY && z >= 0 && z < c.sizeZ;
