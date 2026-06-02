@@ -163,7 +163,24 @@ Priority 6 — USE BOTH STONES WISELY:
 - Placing isolated stones far from any line — wastes a turn.
 - Extending a half-open line when you could build a new open line.
 - Ignoring Z-axis lines — the board is 3D, diagonal through layers is powerful.
-- Defensive-only play — you MUST attack, 2 stones/turn means pure defense loses.`;
+- Defensive-only play — you MUST attack, 2 stones/turn means pure defense loses.
+
+═══ 3D DIAGONALS (often overlooked!) ═══
+The 4 space diagonals are the most powerful directions:
+- (1,1,1): from corner to corner through the cube
+- (1,1,-1): diagonal through XY plane going down in Z
+- (1,-1,1): diagonal through XZ plane
+- (1,-1,-1): opposite corner diagonal
+These are HARD to block because opponents often forget about them.
+If you can build an open line along a space diagonal, it's extremely dangerous.
+
+═══ DOUBLE THREAT PATTERNS ═══
+The winning pattern in Connect6 is ALWAYS a double threat:
+- Place stone A to create Open-4 along direction D1
+- Place stone B to create Open-4 along direction D2
+- Opponent blocks one → you complete the other → WIN
+Look for cells where a single stone creates multiple open lines simultaneously.
+A cell at the intersection of two different directions is a "fork" opportunity.`;
 
   const user = `Board state (X=Black, O=White, .=empty). You are ${colorName}, place ${stonesToPlace} stone(s).
 Black: ${blackCount} stones, White: ${whiteCount} stones.

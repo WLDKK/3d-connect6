@@ -204,10 +204,15 @@ function countThreats(b: number[], c: BoardConfig, color: Stone, oppColor: Stone
 
 // ─── Candidate generation ───
 
+/**
+ * Get candidate cells near existing stones (radius 4).
+ * Filters to only cells that are actually on or adjacent to a line with stones.
+ * This keeps the candidate count reasonable even with a large radius.
+ */
 function getCandidates(b: number[], c: BoardConfig): Vec3[] {
   const candidates: Vec3[] = [];
   const seen = new Set<number>();
-  const RADIUS = 2;
+  const RADIUS = 4;
 
   for (let z = 0; z < c.sizeZ; z++) {
     for (let y = 0; y < c.sizeY; y++) {
@@ -237,6 +242,38 @@ function getCandidates(b: number[], c: BoardConfig): Vec3[] {
   }
 
   return candidates;
+}
+
+/**
+ * Scored candidate with detailed evaluation.
+ */
+interface ScoredMove {
+  pos: Vec3;
+  score: number;
+  attack: number;
+  defend: number;
+}
+
+/**
+ * Score and rank candidates. Returns top N for deeper search.
+ */
+function scoreCandidates(
+  b: number[], c: BoardConfig,
+  candidates: Vec3[],
+  aiStone: Stone, oppStone: Stone,
+  memory?: AiMemory,
+): ScoredMove[] {
+  const scored: ScoredMove[] = [];
+
+  for (const pos of candidates) {
+    const ev = evaluateMove(b, c, pos.x, pos.y, pos.z, aiStone, oppStone);
+    let score = ev.total;
+    if (memory) score += memory.query(b, c, pos.x, pos.y, pos.z) * 0.3;
+    scored.push({ pos, score, attack: ev.attack, defend: ev.defend });
+  }
+
+  scored.sort((a, b_) => b_.score - a.score);
+  return scored;
 }
 
 /**
@@ -280,8 +317,8 @@ function minimax(
   });
   scored.sort((a, b_) => b_.score - a.score);
 
-  // Only search top N candidates to keep it fast
-  const searchLimit = depth >= 2 ? 8 : 12;
+  // Search more candidates at deeper depths for better play
+  const searchLimit = depth >= 2 ? 10 : 15;
   const topMoves = scored.slice(0, Math.min(searchLimit, scored.length));
 
   if (maximizing) {
@@ -374,54 +411,43 @@ function pickBestMove(
 
   // ── Phase 2: Block opponent's immediate wins ──
   const oppWinMoves = candidates.filter(pos => isWinningMove(b, c, pos.x, pos.y, pos.z, oppStone));
-  if (oppWinMoves.length === 1) return oppWinMoves[0]; // Block the one winning move
+  if (oppWinMoves.length === 1) return oppWinMoves[0];
   if (oppWinMoves.length > 1) {
-    // Can't block all — try to create our own winning threat
-    // (fall through to scoring)
+    // Can't block all — fall through to scoring (try to create our own threat)
   }
 
-  // ── Phase 3: Score all candidates ──
-  type ScoredMove = { pos: Vec3; score: number; attack: number; defend: number };
-  const scored: ScoredMove[] = [];
+  // ── Phase 3: Score and rank all candidates ──
+  const scored = scoreCandidates(b, c, candidates, aiStone, oppStone, memory);
 
-  for (const pos of candidates) {
-    const ev = evaluateMove(b, c, pos.x, pos.y, pos.z, aiStone, oppStone);
-    let score = ev.total;
-
-    // Bonus for blocking opponent's multiple winning moves
-    if (oppWinMoves.length > 1 && isWinningMove(b, c, pos.x, pos.y, pos.z, oppStone)) {
-      score += 100000;
+  // Bonus for blocking opponent's multiple winning moves
+  if (oppWinMoves.length > 1) {
+    for (const s of scored) {
+      if (oppWinMoves.some(p => p.x === s.pos.x && p.y === s.pos.y && p.z === s.pos.z)) {
+        s.score += 100000;
+      }
     }
-
-    // Memory bonus
-    if (memory) {
-      score += memory.query(b, c, pos.x, pos.y, pos.z) * 0.3;
-    }
-
-    scored.push({ pos, score, attack: ev.attack, defend: ev.defend });
+    scored.sort((a, b_) => b_.score - a.score);
   }
 
-  // ── Phase 4: Threat analysis for strategic decisions ──
+  // ── Phase 4: Threat analysis ──
   const myThreats = countThreats(b, c, aiStone, oppStone);
   const oppThreats = countThreats(b, c, oppStone, aiStone);
 
-  // If we can create a double threat, prioritize it
+  // Create double threat
   if (myThreats.doubleThreat && myThreats.doubleThreatPos) {
     const dt = myThreats.doubleThreatPos;
-    // Verify the double threat move is in our candidates
     if (candidates.some(p => p.x === dt.x && p.y === dt.y && p.z === dt.z)) {
       return dt;
     }
   }
 
-  // If opponent can create a double threat, try to block one of the open-4 positions
+  // Block opponent's double threat
   if (oppThreats.doubleThreat && oppThreats.doubleThreatPos) {
-    // Find moves that reduce opponent's open-4 count
     const blockers = scored.filter(s => {
       const sim = [...b];
       setStone(sim, s.pos.x, s.pos.y, s.pos.z, c, aiStone);
-      const newOppThreats = countThreats(sim, c, oppStone, aiStone);
-      return newOppThreats.open4 < oppThreats.open4;
+      const newOpp = countThreats(sim, c, oppStone, aiStone);
+      return newOpp.open4 < oppThreats.open4;
     });
     if (blockers.length > 0) {
       blockers.sort((a, b_) => b_.score - a.score);
@@ -429,11 +455,10 @@ function pickBestMove(
     }
   }
 
-  // ── Phase 5: Minimax search on top candidates ──
-  scored.sort((a, b_) => b_.score - a.score);
-  const topN = scored.slice(0, Math.min(8, scored.length));
+  // ── Phase 5: Minimax on top candidates ──
+  const topN = scored.slice(0, Math.min(12, scored.length));
 
-  // If the top candidate is overwhelmingly good, just take it
+  // If top candidate is overwhelmingly good, take it
   if (topN.length > 0 && topN[0].score > 10000) return topN[0].pos;
 
   let bestMove = topN[0]?.pos || candidates[0];
@@ -443,10 +468,8 @@ function pickBestMove(
     const sim = [...b];
     setStone(sim, candidate.pos.x, candidate.pos.y, candidate.pos.z, c, aiStone);
 
-    // 2-ply minimax: our move → opponent's best response → evaluate
+    // 2-ply minimax
     const eval_ = minimax(sim, c, aiStone, oppStone, 2, -Infinity, Infinity, false);
-
-    // Combine minimax score with local heuristic
     const combined = eval_ + candidate.score * 0.1;
 
     if (combined > bestEval) {
