@@ -25,9 +25,11 @@ function saveMemory(memory: AiMemory) {
 
 // Singleton memory instance
 let memory = loadMemory();
+let cachedStats = memory.stats;
 const listeners = new Set<() => void>();
 
 function emit() {
+  cachedStats = memory.stats;
   for (const l of listeners) l();
 }
 
@@ -76,7 +78,7 @@ export function useAiMemory(): AiMemory {
 
 /** Hook to get memory stats (reactive) */
 export function useMemoryStats(): { entries: number; totalGames: number } {
-  return useSyncExternalStore(subscribe, () => memory.stats, () => memory.stats);
+  return useSyncExternalStore(subscribe, () => cachedStats, () => cachedStats);
 }
 
 /** Hook to get memory actions */
