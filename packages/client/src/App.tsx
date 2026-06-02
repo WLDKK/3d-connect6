@@ -220,7 +220,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
   onBack: () => void;
 }) {
   const snapshot = useGameSnapshot();
-  const { reset } = useGameActions();
+  const { reset, placeStone } = useGameActions();
   const [previewCoords, setPreviewCoords] = useState<{ x: number; y: number; z: number } | null>(null);
   const [aiSource, setAiSource] = useState<"llm" | "local" | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
@@ -329,7 +329,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         <color attach="background" args={[bgColor]} />
         <fog attach="fog" args={[bgColor, 25, 60]} />
         <Suspense fallback={null}>
-          <GameScene previewCoords={previewCoords} replayBoard={replayBoard} />
+          <GameScene previewCoords={previewCoords} replayBoard={replayBoard} placeStone={placeStone} />
         </Suspense>
         <CameraDirectionTracker />
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />

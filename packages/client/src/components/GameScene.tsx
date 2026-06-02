@@ -7,7 +7,7 @@ import { Stones } from "./Stones";
 import { HoverIndicator } from "./HoverIndicator";
 import { AxisLabels } from "./AxisLabels";
 import { PreviewStone } from "./PreviewStone";
-import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
+import { useGameSnapshot } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
 import { Player, Stone } from "@connect6/shared";
 
@@ -203,12 +203,12 @@ function BoardHitTarget({
 /**
  * Main game scene — right-hand coordinate system, Z up.
  */
-export function GameScene({ previewCoords, replayBoard }: {
+export function GameScene({ previewCoords, replayBoard, placeStone }: {
   previewCoords: { x: number; y: number; z: number } | null;
   replayBoard?: number[] | null;
+  placeStone?: (x: number, y: number, z: number) => boolean;
 }) {
   const snapshot = useGameSnapshot();
-  const { placeStone } = useGameActions();
   const { transparencyEnabled } = useViewState();
   const [hoverPos, setHoverPos] = useState<[number, number, number] | null>(null);
   const [hoverGrid, setHoverGrid] = useState<{ x: number; y: number; z: number } | null>(null);
