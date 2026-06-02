@@ -114,47 +114,8 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     setError("");
   }, [sizeX, sizeY, sizeZ, updatePreview]);
 
-  // Handle keyboard navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleSubmit();
-      return;
-    }
-
-    // Arrow keys and W/S for navigation
-    let dx = 0, dy = 0, dz = 0;
-    switch (e.key) {
-      case "ArrowLeft":  dx = -1; break;
-      case "ArrowRight": dx = 1;  break;
-      case "ArrowUp":    dz = 1;  break;
-      case "ArrowDown":  dz = -1; break;
-      case "w": case "W": dy = 1;  break;
-      case "s": case "S": dy = -1; break;
-      default: return; // Let other keys pass through for typing
-    }
-
-    e.preventDefault();
-    moveCursor(dx, dy, dz);
-  }, [moveCursor]);
-
-  // Handle manual text input
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInput(val);
-    setManualMode(true);
-    setError("");
-
-    // Try to parse and preview
-    const parsed = parseUserCoords(val);
-    if (parsed) {
-      const [ux, uy, uz] = parsed;
-      if (ux >= 0 && ux < sizeX && uy >= 0 && uy < sizeY && uz >= 0 && uz < sizeZ) {
-        cursorRef.current = { x: ux, y: uy, z: uz };
-        updatePreview(ux, uy, uz);
-      }
-    }
-  }, [sizeX, sizeY, sizeZ, updatePreview]);
+  // Ref for submit handler so the global listener doesn't need it as dependency
+  const submitRef = useRef<() => void>(() => {});
 
   // Place stone at current position
   const handleSubmit = useCallback(() => {
@@ -176,6 +137,61 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     onPreview(null);
   }, [snapshot, sizeX, sizeY, toGrid, placeStone, onPreview]);
 
+  // Keep ref in sync
+  submitRef.current = handleSubmit;
+
+  // Global keyboard listener — works even when input is not focused
+  useEffect(() => {
+    const handleGlobalKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isOtherInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+      let dx = 0, dy = 0, dz = 0;
+      switch (e.key) {
+        case "ArrowLeft":  dx = -1; break;
+        case "ArrowRight": dx = 1;  break;
+        case "ArrowUp":    dz = 1;  break;
+        case "ArrowDown":  dz = -1; break;
+        case "w": case "W": dy = 1;  break;
+        case "s": case "S": dy = -1; break;
+        case "Enter":
+          if (isOtherInput && document.activeElement !== inputRef.current) return;
+          e.preventDefault();
+          submitRef.current();
+          return;
+        default:
+          return;
+      }
+
+      if (isOtherInput && document.activeElement !== inputRef.current) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      moveCursor(dx, dy, dz);
+    };
+
+    window.addEventListener("keydown", handleGlobalKey, true);
+    return () => window.removeEventListener("keydown", handleGlobalKey, true);
+  }, [moveCursor]);
+
+  // Handle manual text input
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    setManualMode(true);
+    setError("");
+
+    // Try to parse and preview
+    const parsed = parseUserCoords(val);
+    if (parsed) {
+      const [ux, uy, uz] = parsed;
+      if (ux >= 0 && ux < sizeX && uy >= 0 && uy < sizeY && uz >= 0 && uz < sizeZ) {
+        cursorRef.current = { x: ux, y: uy, z: uz };
+        updatePreview(ux, uy, uz);
+      }
+    }
+  }, [sizeX, sizeY, sizeZ, updatePreview]);
+
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-xs">
       <div className="bg-black/70 backdrop-blur-sm border border-cyber-grid rounded-lg px-4 py-2 flex items-center gap-2">
@@ -185,7 +201,6 @@ export function CoordInput({ onPreview }: CoordInputProps) {
           type="text"
           value={input}
           onChange={handleChange}
-          onKeyDown={handleKeyDown}
           placeholder="x,y,z"
           className="bg-cyber-grid/50 text-white px-2 py-1 rounded w-28 outline-none border border-transparent focus:border-cyber-accent text-center"
         />
