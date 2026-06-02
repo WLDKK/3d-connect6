@@ -417,7 +417,12 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
       >
         <color attach="background" args={[bgColor]} />
         <fog attach="fog" args={[bgColor, 25, 60]} />
-        <Suspense fallback={null}>
+        <Suspense fallback={
+          <mesh>
+            <boxGeometry args={[1, 1, 1]} />
+            <meshBasicMaterial color="orange" />
+          </mesh>
+        }>
           <GameScene previewCoords={previewCoords} replayBoard={replayBoard} />
         </Suspense>
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
