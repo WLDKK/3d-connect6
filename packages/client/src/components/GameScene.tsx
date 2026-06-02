@@ -139,12 +139,11 @@ function ddaFindFirstEmpty(
  * On pointer events, uses DDA to find the nearest empty cell.
  */
 function BoardHitTarget({
-  sizeX, sizeY, sizeZ, snapshot, onHover, onClickCell,
+  sizeX, sizeY, sizeZ, snapshot, onHover,
 }: {
   sizeX: number; sizeY: number; sizeZ: number;
   snapshot: { board: number[]; config: { sizeX: number; sizeY: number; sizeZ: number } };
   onHover: (pos: [number, number, number] | null, grid: { x: number; y: number; z: number } | null) => void;
-  onClickCell?: (x: number, y: number, z: number) => void;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const camera = useThree((s) => s.camera);
@@ -188,19 +187,12 @@ function BoardHitTarget({
     onHover(null, null);
   }, [onHover]);
 
-  const handleClick = useCallback(() => {
-    if (onClickCell && lastGridRef.current) {
-      onClickCell(lastGridRef.current.x, lastGridRef.current.y, lastGridRef.current.z);
-    }
-  }, [onClickCell]);
-
   return (
     <mesh
       ref={meshRef}
       geometry={geometry}
       onPointerMove={handlePointerMove}
       onPointerOut={handlePointerOut}
-      onClick={handleClick}
     >
       <meshBasicMaterial visible={false} />
     </mesh>
@@ -253,7 +245,6 @@ export function GameScene({ previewCoords, replayBoard }: {
         sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ}
         snapshot={snapshot}
         onHover={handleHover}
-        onClickCell={placeStone}
       />
 
       <HoverIndicator position={hoverPos} />

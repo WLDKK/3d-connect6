@@ -25,7 +25,8 @@ export function CameraDirectionTracker() {
     if (_forward.lengthSq() < 0.001) return;
 
     _forward.normalize();
-    _right.set(-_forward.y, _forward.x, 0);
+    // Right = forward rotated 90° clockwise around Z
+    _right.set(_forward.y, -_forward.x, 0);
     _right.normalize();
 
     cameraDir.forward.x = _forward.x;
