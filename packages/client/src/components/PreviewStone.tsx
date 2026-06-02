@@ -8,13 +8,16 @@ const SPHERE_RADIUS = CELL_SIZE * 0.3;
 interface PreviewStoneProps {
   position: [number, number, number];
   isBlack: boolean;
+  /** true = pulsing glow (typed coords), false = static subtle preview (hover) */
+  pulsing?: boolean;
 }
 
 /**
- * Ghost preview stone with pulsing fluorescent outer glow.
- * Shown when valid coordinates are typed but not yet placed.
+ * Ghost preview stone.
+ * pulsing=true: fluorescent pulse (typed coordinates, not yet placed)
+ * pulsing=false: subtle static preview (hover over empty cell)
  */
-export function PreviewStone({ position, isBlack }: PreviewStoneProps) {
+export function PreviewStone({ position, isBlack, pulsing = true }: PreviewStoneProps) {
   const groupRef = useRef<THREE.Group>(null);
   const glowRef = useRef<THREE.MeshBasicMaterial>(null);
   const coreRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -25,37 +28,40 @@ export function PreviewStone({ position, isBlack }: PreviewStoneProps) {
   useFrame(({ clock }) => {
     if (!groupRef.current || !glowRef.current || !coreRef.current) return;
     groupRef.current.position.set(...position);
-    const t = clock.elapsedTime;
-    // Pulse the glow
-    glowRef.current.opacity = 0.15 + Math.sin(t * 3) * 0.1;
-    // Pulse the core
-    coreRef.current.opacity = 0.35 + Math.sin(t * 3) * 0.1;
-    // Gentle scale pulse on the glow shell
-    const s = 1.0 + Math.sin(t * 3) * 0.08;
-    groupRef.current.children[1].scale.setScalar(s);
+
+    if (pulsing) {
+      const t = clock.elapsedTime;
+      glowRef.current.opacity = 0.15 + Math.sin(t * 3) * 0.1;
+      coreRef.current.opacity = 0.35 + Math.sin(t * 3) * 0.1;
+      const s = 1.0 + Math.sin(t * 3) * 0.08;
+      groupRef.current.children[1].scale.setScalar(s);
+    } else {
+      // Static hover preview — subtle, no animation
+      glowRef.current.opacity = 0.08;
+      coreRef.current.opacity = 0.2;
+      groupRef.current.children[1].scale.setScalar(1.0);
+    }
   });
 
   return (
     <group ref={groupRef}>
-      {/* Inner core — semi-transparent stone */}
       <mesh>
         <sphereGeometry args={[SPHERE_RADIUS, 24, 16]} />
         <meshStandardMaterial
           ref={coreRef}
           color={baseColor}
           transparent
-          opacity={0.35}
+          opacity={0.2}
           depthWrite={false}
         />
       </mesh>
-      {/* Outer glow shell */}
       <mesh>
         <sphereGeometry args={[SPHERE_RADIUS * 1.5, 24, 16]} />
         <meshBasicMaterial
           ref={glowRef}
           color={glowColor}
           transparent
-          opacity={0.15}
+          opacity={0.08}
           depthWrite={false}
           side={THREE.BackSide}
         />

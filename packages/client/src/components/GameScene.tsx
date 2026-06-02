@@ -7,7 +7,7 @@ import { Stones } from "./Stones";
 import { HoverIndicator } from "./HoverIndicator";
 import { AxisLabels } from "./AxisLabels";
 import { PreviewStone } from "./PreviewStone";
-import { useGameSnapshot } from "../hooks/useGameStore";
+import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
 import { Player, Stone } from "@connect6/shared";
 
@@ -139,14 +139,16 @@ function ddaFindFirstEmpty(
  * On pointer events, uses DDA to find the nearest empty cell.
  */
 function BoardHitTarget({
-  sizeX, sizeY, sizeZ, snapshot, onHover,
+  sizeX, sizeY, sizeZ, snapshot, onHover, onClickCell,
 }: {
   sizeX: number; sizeY: number; sizeZ: number;
   snapshot: { board: number[]; config: { sizeX: number; sizeY: number; sizeZ: number } };
   onHover: (pos: [number, number, number] | null, grid: { x: number; y: number; z: number } | null) => void;
+  onClickCell?: (x: number, y: number, z: number) => void;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const camera = useThree((s) => s.camera);
+  const lastGridRef = useRef<{ x: number; y: number; z: number } | null>(null);
 
   const geometry = useCallback(() => {
     const geo = new THREE.BoxGeometry(
@@ -171,6 +173,7 @@ function BoardHitTarget({
     (e: { point: THREE.Vector3 }) => {
       const ray = makeRay(e.point);
       const grid = ddaFindFirstEmpty(ray, sizeX, sizeY, sizeZ, snapshot.board);
+      lastGridRef.current = grid;
       if (grid) {
         onHover(gridToWorld(grid.x, grid.y, grid.z, sizeX, sizeY, sizeZ), grid);
       } else {
@@ -181,8 +184,15 @@ function BoardHitTarget({
   );
 
   const handlePointerOut = useCallback(() => {
+    lastGridRef.current = null;
     onHover(null, null);
   }, [onHover]);
+
+  const handleClick = useCallback(() => {
+    if (onClickCell && lastGridRef.current) {
+      onClickCell(lastGridRef.current.x, lastGridRef.current.y, lastGridRef.current.z);
+    }
+  }, [onClickCell]);
 
   return (
     <mesh
@@ -190,6 +200,7 @@ function BoardHitTarget({
       geometry={geometry}
       onPointerMove={handlePointerMove}
       onPointerOut={handlePointerOut}
+      onClick={handleClick}
     >
       <meshBasicMaterial visible={false} />
     </mesh>
@@ -199,8 +210,12 @@ function BoardHitTarget({
 /**
  * Main game scene — right-hand coordinate system, Z up.
  */
-export function GameScene({ previewCoords, replayBoard }: { previewCoords: { x: number; y: number; z: number } | null; replayBoard?: number[] | null }) {
+export function GameScene({ previewCoords, replayBoard }: {
+  previewCoords: { x: number; y: number; z: number } | null;
+  replayBoard?: number[] | null;
+}) {
   const snapshot = useGameSnapshot();
+  const { placeStone } = useGameActions();
   const { transparencyEnabled } = useViewState();
   const [hoverPos, setHoverPos] = useState<[number, number, number] | null>(null);
   const [hoverGrid, setHoverGrid] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -214,6 +229,15 @@ export function GameScene({ previewCoords, replayBoard }: { previewCoords: { x: 
     },
     [],
   );
+
+  // Preview position: typed coords take priority, otherwise show hover preview
+  const previewPos = previewCoords
+    ? gridToWorld(previewCoords.x, previewCoords.y, previewCoords.z, sizeX, sizeY, sizeZ)
+    : hoverGrid
+      ? gridToWorld(hoverGrid.x, hoverGrid.y, hoverGrid.z, sizeX, sizeY, sizeZ)
+      : null;
+
+  const isPreviewFromHover = !previewCoords && hoverGrid !== null;
 
   return (
     <group>
@@ -229,13 +253,15 @@ export function GameScene({ previewCoords, replayBoard }: { previewCoords: { x: 
         sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ}
         snapshot={snapshot}
         onHover={handleHover}
+        onClickCell={placeStone}
       />
 
       <HoverIndicator position={hoverPos} />
-      {previewCoords && (
+      {previewPos && (
         <PreviewStone
-          position={gridToWorld(previewCoords.x, previewCoords.y, previewCoords.z, sizeX, sizeY, sizeZ)}
+          position={previewPos}
           isBlack={snapshot.currentPlayer === Player.BLACK}
+          pulsing={!isPreviewFromHover}
         />
       )}
       <AxisLabels sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} />
