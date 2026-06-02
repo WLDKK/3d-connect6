@@ -188,19 +188,12 @@ function BoardHitTarget({
     onHover(null, null);
   }, [onHover]);
 
-  const handleClick = useCallback(() => {
-    if (onClickCell && lastGridRef.current) {
-      onClickCell(lastGridRef.current.x, lastGridRef.current.y, lastGridRef.current.z);
-    }
-  }, [onClickCell]);
-
   return (
     <mesh
       ref={meshRef}
       geometry={geometry}
       onPointerMove={handlePointerMove}
       onPointerOut={handlePointerOut}
-      onClick={handleClick}
     >
       <meshBasicMaterial visible={false} />
     </mesh>
