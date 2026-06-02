@@ -10,6 +10,7 @@ import { useWebSocketState, useWebSocketActions } from "./hooks/useWebSocket";
 import { useViewState } from "./hooks/useViewStore";
 import { AiController } from "./components/AiController";
 import { CoordInput } from "./components/CoordInput";
+import { CameraDirectionTracker } from "./components/CameraDirectionTracker";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
 import { ReplayControls } from "./components/ReplayControls";
 import { useAiMemoryActions } from "./hooks/useAiMemory";
@@ -329,6 +330,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         <Suspense fallback={null}>
           <GameScene previewCoords={previewCoords} replayBoard={replayBoard} />
         </Suspense>
+        <CameraDirectionTracker />
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
       </Canvas>
 

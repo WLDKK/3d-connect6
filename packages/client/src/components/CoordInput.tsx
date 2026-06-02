@@ -3,18 +3,22 @@ import { computeAiMove, Player, Stone, type AiRequestPayload } from "@connect6/s
 import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
 
 /**
- * Coordinate input with keyboard navigation.
+ * Camera-relative directions for keyboard navigation.
+ * Updated every frame by CameraDirectionTracker inside the Canvas.
+ */
+export const cameraDir = {
+  forward: { x: 0, y: 1, z: 0 },  // default: into screen
+  right: { x: 1, y: 0, z: 0 },    // default: right
+};
+
+/**
+ * Coordinate input with camera-relative keyboard navigation.
  *
- * When input is empty:
- *   - AI best move is computed and shown as preview
- *   - Arrow keys / W/S move the cursor
- *   - Enter confirms placement
- *
- * Key mapping (human perspective, facing the board):
- *   ← → : move left / right  (X axis)
- *   ↑ ↓ : move up / down     (Z axis)
- *   W   : move forward (into screen, away from you)  (Y+)
- *   S   : move backward (toward you)                  (Y-)
+ * Key mapping (always relative to current camera view):
+ *   ← → : move left / right  (camera right vector)
+ *   ↑ ↓ : move up / down     (world Z axis)
+ *   W   : move forward (into screen from current view)
+ *   S   : move backward (toward camera)
  *   Enter: confirm and place stone
  */
 
@@ -49,6 +53,13 @@ export function CoordInput({ onPreview }: CoordInputProps) {
   const cursorRef = useRef({ x: 0, y: 0, z: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<() => void>(() => {});
+
+  // Board world bounds for coordinate mapping
+  const CELL = 1.5;
+  const worldMinX = -((sizeX - 1) * CELL) / 2;
+  const worldMaxX = ((sizeX - 1) * CELL) / 2;
+  const worldMinY = -((sizeY - 1) * CELL) / 2;
+  const worldMaxY = ((sizeY - 1) * CELL) / 2;
 
   const toGrid = useCallback((ux: number, uy: number, uz: number) => ({
     x: sizeX - 1 - ux, y: uy, z: uz,
@@ -95,6 +106,22 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     return true;
   }, [toGrid, isOccupied, snapshot.winner, onPreview]);
 
+  /**
+   * Convert a world-space direction to user-coordinate delta.
+   * World X → user X (inverted: world right = user right, but grid x is flipped)
+   * World Y → user Y (same direction)
+   * World Z → user Z (same direction)
+   */
+  const worldDirToUserDelta = useCallback((wx: number, wy: number, wz: number): [number, number, number] => {
+    // World X positive = screen right = user X increasing
+    // But grid x is flipped: user X=0 is at grid x=sizeX-1
+    // So world X positive = user X increasing = grid x decreasing
+    const dx = Math.round(wx);
+    const dy = Math.round(wy);
+    const dz = Math.round(wz);
+    return [dx, dy, dz];
+  }, []);
+
   const moveCursor = useCallback((dx: number, dy: number, dz: number) => {
     const c = cursorRef.current;
     const nx = clamp(c.x + dx, sizeX);
@@ -107,7 +134,6 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     setError("");
   }, [sizeX, sizeY, sizeZ, updatePreview]);
 
-  // Submit: place stone at current cursor position
   const handleSubmit = useCallback(() => {
     setError("");
     const c = cursorRef.current;
@@ -131,44 +157,67 @@ export function CoordInput({ onPreview }: CoordInputProps) {
 
   submitRef.current = handleSubmit;
 
-  // Global keyboard — capture phase, fires before OrbitControls
+  // Global keyboard — capture phase
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't interfere with other inputs (unless it's our own)
       const target = e.target as HTMLElement;
       const isOurInput = document.activeElement === inputRef.current;
       const isOtherInput = (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") && !isOurInput;
       if (isOtherInput) return;
 
-      // Direction mapping (human perspective, facing the board):
-      // ← → : left / right  (X)
-      // ↑ ↓ : up / down     (Z)
-      // W/S : forward / backward into screen (Y)
       let dx = 0, dy = 0, dz = 0;
+
       switch (e.key) {
-        case "ArrowLeft":   dx = -1; break;
-        case "ArrowRight":  dx = 1;  break;
-        case "ArrowUp":     dz = 1;  break;
-        case "ArrowDown":   dz = -1; break;
-        case "w": case "W": dy = 1;  break;
-        case "s": case "S": dy = -1; break;
+        case "ArrowLeft": {
+          // Move in the negative camera-right direction
+          const r = cameraDir.right;
+          [dx, dy, dz] = worldDirToUserDelta(-r.x, -r.y, 0);
+          break;
+        }
+        case "ArrowRight": {
+          // Move in the positive camera-right direction
+          const r = cameraDir.right;
+          [dx, dy, dz] = worldDirToUserDelta(r.x, r.y, 0);
+          break;
+        }
+        case "ArrowUp":
+          dz = 1; // Always world Z up
+          break;
+        case "ArrowDown":
+          dz = -1; // Always world Z down
+          break;
+        case "w": case "W": {
+          // Move forward (into screen from camera perspective)
+          const f = cameraDir.forward;
+          [dx, dy, dz] = worldDirToUserDelta(f.x, f.y, 0);
+          break;
+        }
+        case "s": case "S": {
+          // Move backward (toward camera)
+          const f = cameraDir.forward;
+          [dx, dy, dz] = worldDirToUserDelta(-f.x, -f.y, 0);
+          break;
+        }
         case "Enter":
           e.preventDefault();
           e.stopPropagation();
           submitRef.current();
           return;
         default:
-          return; // Let other keys pass through
+          return;
       }
+
+      // Only move if delta is non-zero
+      if (dx === 0 && dy === 0 && dz === 0) return;
 
       e.preventDefault();
       e.stopPropagation();
       moveCursor(dx, dy, dz);
     };
 
-    window.addEventListener("keydown", handler, true); // capture phase
+    window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [moveCursor]);
+  }, [moveCursor, worldDirToUserDelta]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -206,7 +255,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
         </button>
         {error && <span className="text-red-400 ml-1">{error}</span>}
         <span className="text-cyber-accent/30 ml-2 hidden md:inline">
-          ←→X ↑↓Z W·S 前后 Enter确认
+          ←→左右 ↑↓上下 W·S前后 Enter确认
         </span>
       </div>
     </div>
