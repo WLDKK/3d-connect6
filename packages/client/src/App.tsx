@@ -634,6 +634,9 @@ export default function App() {
 
   return (
     <GameStoreContext.Provider value={store}>
+      <div style={{ position: "fixed", top: 5, left: 10, zIndex: 99999, color: "lime", fontSize: 11, fontFamily: "monospace", pointerEvents: "none" }}>
+        DEBUG: App render | inGame={String(inGame)} | mode={gameMode}
+      </div>
       {inGame ? (
         <GameContent
           roomId={roomId}
