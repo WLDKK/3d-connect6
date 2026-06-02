@@ -1,6 +1,7 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Suspense, useCallback, useState, useEffect, useRef } from "react";
+import { Suspense, useCallback, useState, useEffect, useRef, Component } from "react";
+import type { ReactNode, ErrorInfo } from "react";
 import { GameScene } from "./components/GameScene";
 import { ControlPanel } from "./components/ControlPanel";
 import { SliceMonitor } from "./components/SliceMonitor";
@@ -554,6 +555,32 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
   );
 }
 
+class ErrorBoundary extends Component<
+  { children: ReactNode; onBack: () => void },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("GameContent crash:", error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0a0e17", color: "#ff4444", fontFamily: "monospace", fontSize: 14, zIndex: 99999 }}>
+          <div style={{ textAlign: "center" }}>
+            <p style={{ marginBottom: 8 }}>渲染出错: {this.state.error.message}</p>
+            <button onClick={this.props.onBack} style={{ padding: "6px 16px", background: "#222", color: "#aaa", border: "1px solid #444", borderRadius: 6, cursor: "pointer" }}>
+              返回大厅
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const store = useCreateGameStore();
   const { theme } = useViewState();
@@ -638,15 +665,17 @@ export default function App() {
         DEBUG: App render | inGame={String(inGame)} | mode={gameMode}
       </div>
       {inGame ? (
-        <GameContent
-          roomId={roomId}
-          aiColor={aiColor}
-          aiModel={aiModel}
-          gameMode={gameMode}
-          trainingAnalyze={trainingAnalyze}
-          dualAiModels={dualAiModels}
-          onBack={handleLeaveRoom}
-        />
+        <ErrorBoundary onBack={handleLeaveRoom}>
+          <GameContent
+            roomId={roomId}
+            aiColor={aiColor}
+            aiModel={aiModel}
+            gameMode={gameMode}
+            trainingAnalyze={trainingAnalyze}
+            dualAiModels={dualAiModels}
+            onBack={handleLeaveRoom}
+          />
+        </ErrorBoundary>
       ) : (
         <Lobby
           onEnterRoom={handleEnterRoom}
