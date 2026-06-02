@@ -367,3 +367,63 @@ export async function computeAiMoveWithLLM(req: AiRequestPayload): Promise<AiRes
   }
   return computeAiMove(req);
 }
+
+/**
+ * Call LLM for strategic analysis text (not moves).
+ * Used by the training mode analysis panel.
+ */
+export async function callLLMForAnalysis(req: AiRequestPayload): Promise<string | null> {
+  const modelId = req.model ?? "qwen3.6-plus";
+  const cfg = MODEL_ENDPOINTS[modelId as keyof typeof MODEL_ENDPOINTS];
+  if (!cfg) return null;
+
+  const { board, config, aiColor, stonesToPlace } = req;
+  const { sizeX: sx, sizeY: sy, sizeZ: sz } = config;
+  const colorName = aiColor === Player.BLACK ? "Black (X)" : "White (O)";
+
+  // Build compact board text
+  const lines: string[] = [];
+  for (let z = 0; z < sz; z++) {
+    let hasContent = false;
+    for (let i = z * sy * sx; i < (z + 1) * sy * sx; i++) {
+      if (board[i] !== 0) { hasContent = true; break; }
+    }
+    if (!hasContent && z !== 0 && z !== sz - 1) continue;
+    const layer: string[] = [`Z=${z}:`];
+    for (let y = 0; y < sy; y++) {
+      const row = Array.from({ length: sx }, (_, x) => {
+        const s = board[z * sy * sx + y * sx + x];
+        return s === 1 ? "X" : s === 2 ? "O" : ".";
+      }).join(" ");
+      layer.push(`  Y=${y}: ${row}`);
+    }
+    lines.push(layer.join("\n"));
+  }
+
+  const system = `You are a Connect6 game analyst. Provide concise strategic analysis.
+Board: ${sx}×${sy}×${sz} 3D. Win: ${config.winLength} in a row (13 directions: 3 axes + 6 face diagonals + 4 space diagonals).
+Respond in the same language as the user's question. Be brief and direct.`;
+
+  const user = `Current player: ${colorName}, must place ${stonesToPlace} stone(s).
+
+${lines.join("\n")}
+
+Analyze this position in 3-5 lines:
+1. Who is winning and why?
+2. Best move for current player and why?
+3. Key threat or opportunity to watch for?`;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+    const text = cfg.protocol === "openai"
+      ? await callOpenAI(cfg, system, user, controller.signal)
+      : await callAnthropic(cfg, system, user, controller.signal);
+
+    clearTimeout(timer);
+    return text;
+  } catch {
+    return null;
+  }
+}

@@ -1,6 +1,6 @@
 export { GameRoom } from "./room";
 
-import { computeAiMoveWithLLM, setAiApiKey } from "./ai-llm";
+import { computeAiMoveWithLLM, callLLMForAnalysis, setAiApiKey } from "./ai-llm";
 import type { AiRequestPayload } from "@connect6/shared";
 
 interface Env {
@@ -30,7 +30,14 @@ export default {
     // Route: POST /api/ai/move — AI inference
     if (request.method === "POST" && url.pathname === "/api/ai/move") {
       const res = await handleAiRequest(request);
-      // Add CORS headers
+      const newHeaders = new Headers(res.headers);
+      for (const [k, v] of Object.entries(corsHeaders)) newHeaders.set(k, v);
+      return new Response(res.body, { status: res.status, headers: newHeaders });
+    }
+
+    // Route: POST /api/ai/analyze — LLM strategic analysis (text)
+    if (request.method === "POST" && url.pathname === "/api/ai/analyze") {
+      const res = await handleAnalyzeRequest(request);
       const newHeaders = new Headers(res.headers);
       for (const [k, v] of Object.entries(corsHeaders)) newHeaders.set(k, v);
       return new Response(res.body, { status: res.status, headers: newHeaders });
@@ -73,4 +80,20 @@ async function handleAiRequest(request: Request): Promise<Response> {
       moveCount: result.moves.length,
     },
   });
+}
+
+async function handleAnalyzeRequest(request: Request): Promise<Response> {
+  let payload: AiRequestPayload;
+  try {
+    payload = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (!payload.board || !payload.config) {
+    return Response.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  const text = await callLLMForAnalysis(payload);
+  return Response.json({ text: text || "分析失败，请重试" });
 }

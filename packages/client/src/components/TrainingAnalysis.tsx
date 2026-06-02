@@ -1,23 +1,116 @@
-import { useState, useCallback } from "react";
-import { computeAiMove, Player, Stone, type AiRequestPayload } from "@connect6/shared";
-import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
+import { useState, useCallback, useRef } from "react";
+import {
+  computeAiMove, scoreCell,
+  Player, Stone,
+  type AiRequestPayload, type BoardConfig,
+} from "@connect6/shared";
+import { useGameSnapshot } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
 
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
 interface Analysis {
+  /** Best move coordinates */
   bestMove: string;
-  score: string;
-  threat: string;
+  /** Threat level description */
+  threats: string[];
+  /** Strategic recommendation */
+  advice: string;
+  /** Source: "llm" or "local" */
+  source: string;
+  /** LLM raw text (if available) */
+  llmText?: string;
+}
+
+/** Score thresholds matching ai.ts lineScore table */
+const SCORE = {
+  WIN: 500000,
+  OPEN5: 50000,
+  OPEN4: 1200,
+  OPEN3: 100,
+  OPEN2: 20,
+};
+
+function analyzePositionLocal(board: number[], config: BoardConfig, aiStone: Stone): {
+  myWins: string[]; oppWins: string[];
+  myOpen5: string[]; oppOpen5: string[];
+  myOpen4: number; oppOpen4: number;
+  myOpen3: number; oppOpen3: number;
+} {
+  const { sizeX: sx, sizeY: sy, sizeZ: sz } = config;
+  const oppStone = aiStone === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
+  const result = {
+    myWins: [] as string[], oppWins: [] as string[],
+    myOpen5: [] as string[], oppOpen5: [] as string[],
+    myOpen4: 0, oppOpen4: 0,
+    myOpen3: 0, oppOpen3: 0,
+  };
+
+  for (let z = 0; z < sz; z++) {
+    for (let y = 0; y < sy; y++) {
+      for (let x = 0; x < sx; x++) {
+        if (board[z * sy * sx + y * sx + x] !== Stone.EMPTY) continue;
+        const myScore = scoreCell(board, config, x, y, z, aiStone);
+        const oppScore = scoreCell(board, config, x, y, z, oppStone);
+
+        if (myScore >= SCORE.WIN) result.myWins.push(`(${x},${y},${z})`);
+        if (oppScore >= SCORE.WIN) result.oppWins.push(`(${x},${y},${z})`);
+        if (myScore >= SCORE.OPEN5 && myScore < SCORE.WIN) result.myOpen5.push(`(${x},${y},${z})`);
+        if (oppScore >= SCORE.OPEN5 && oppScore < SCORE.WIN) result.oppOpen5.push(`(${x},${y},${z})`);
+        if (myScore >= SCORE.OPEN4 && myScore < SCORE.OPEN5) result.myOpen4++;
+        if (oppScore >= SCORE.OPEN4 && oppScore < SCORE.OPEN5) result.oppOpen4++;
+        if (myScore >= SCORE.OPEN3 && myScore < SCORE.OPEN4) result.myOpen3++;
+        if (oppScore >= SCORE.OPEN3 && oppScore < SCORE.OPEN4) result.oppOpen3++;
+      }
+    }
+  }
+  return result;
 }
 
 /**
- * Training mode AI analysis panel.
- * Player clicks "分析" to get AI evaluation of the current position.
+ * Call LLM server for strategic analysis text.
+ * Returns the LLM's analysis or null on failure.
  */
+async function callLLMAnalysis(snapshot: {
+  board: number[];
+  config: BoardConfig;
+  currentPlayer: number;
+  round: number;
+  stonesPlacedThisTurn: number;
+}): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+
+    const res = await fetch(`${API_BASE}/api/ai/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        board: Array.from(snapshot.board),
+        config: snapshot.config,
+        aiColor: snapshot.currentPlayer,
+        currentPlayer: snapshot.currentPlayer,
+        stonesToPlace: snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn,
+      }),
+    });
+
+    clearTimeout(timer);
+    if (!res.ok) return null;
+
+    const data = await res.json() as { text?: string };
+    return data.text || null;
+  } catch {
+    return null;
+  }
+}
+
 export function TrainingAnalysis() {
   const snapshot = useGameSnapshot();
   const { theme } = useViewState();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const isDark = theme === "dark";
   const bgPanel = isDark ? "bg-black/70" : "bg-white/80";
@@ -25,65 +118,79 @@ export function TrainingAnalysis() {
   const textColor = isDark ? "text-cyber-accent" : "text-gray-800";
   const textDim = isDark ? "text-cyber-accent/60" : "text-gray-500";
 
-  const analyze = useCallback(() => {
+  const analyze = useCallback(async () => {
+    if (loading) return;
     setLoading(true);
     setAnalysis(null);
 
-    // Run analysis in next tick to avoid blocking UI
-    setTimeout(() => {
-      const board = Array.from(snapshot.board);
-      const { config, currentPlayer } = snapshot;
+    const board = Array.from(snapshot.board);
+    const { config, currentPlayer } = snapshot;
+    const aiStone = currentPlayer as unknown as Stone;
 
-      // Evaluate best move for current player
-      const req: AiRequestPayload = {
-        board,
-        config,
-        aiColor: currentPlayer,
-        currentPlayer,
-        stonesToPlace: snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn,
-        model: "local",
-      };
+    // Step 1: Local threat analysis (instant)
+    const threats = analyzePositionLocal(board, config, aiStone);
+    const threatLines: string[] = [];
 
-      const result = computeAiMove(req);
-      const bestMove = result.moves.length > 0
-        ? result.moves.map(m => `(${m.x},${m.y},${m.z})`).join(" ")
-        : "无";
+    if (threats.oppWins.length > 0)
+      threatLines.push(`🚨 对手可获胜: ${threats.oppWins.join(", ")}`);
+    if (threats.myWins.length > 0)
+      threatLines.push(`✅ 你可以获胜: ${threats.myWins.join(", ")}`);
+    if (threats.oppOpen5.length > 0)
+      threatLines.push(`⚠️ 对手 Open-5: ${threats.oppOpen5.slice(0, 3).join(", ")}`);
+    if (threats.myOpen5.length > 0)
+      threatLines.push(`🎯 我方 Open-5: ${threats.myOpen5.slice(0, 3).join(", ")}`);
+    if (threats.myOpen4 >= 2)
+      threatLines.push(`💪 我方 ${threats.myOpen4} 条 Open-4 — 双威胁机会`);
+    if (threats.oppOpen4 >= 2)
+      threatLines.push(`🛡️ 对手 ${threats.oppOpen4} 条 Open-4 — 注意防守`);
+    if (threatLines.length === 0)
+      threatLines.push("📋 无紧急威胁，构建开放线");
 
-      // Evaluate threats
-      const oppColor = currentPlayer === Player.BLACK ? Player.WHITE : Player.BLACK;
-      const oppReq: AiRequestPayload = { ...req, aiColor: oppColor };
-      const oppResult = computeAiMove(oppReq);
+    // Step 2: Local AI best move (instant)
+    const req: AiRequestPayload = {
+      board,
+      config,
+      aiColor: currentPlayer,
+      currentPlayer,
+      stonesToPlace: snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn,
+      model: "local",
+    };
+    const localResult = computeAiMove(req);
+    const localMove = localResult.moves.length > 0
+      ? localResult.moves.map(m => `(${m.x},${m.y},${m.z})`).join(" ")
+      : "无";
 
-      // Count stones
-      let blackCount = 0, whiteCount = 0;
-      for (const s of board) {
-        if (s === Stone.BLACK) blackCount++;
-        if (s === Stone.WHITE) whiteCount++;
-      }
+    // Set initial analysis immediately
+    setAnalysis({
+      bestMove: localMove,
+      threats: threatLines,
+      advice: "正在请求 LLM 深度分析...",
+      source: "local",
+    });
+    setLoading(false);
 
-      // Simple score: difference in stone count + center control
-      const advantage = currentPlayer === Player.BLACK
-        ? `${blackCount} 黑 vs ${whiteCount} 白 — 黑方回合`
-        : `${blackCount} 黑 vs ${whiteCount} 白 — 白方回合`;
-
-      const threatInfo = oppResult.moves.length > 0
-        ? `对手最佳应对: ${oppResult.moves.map(m => `(${m.x},${m.y},${m.z})`).join(" ")}`
-        : "无明显威胁";
-
-      setAnalysis({
-        bestMove: `推荐落子: ${bestMove}`,
-        score: advantage,
-        threat: threatInfo,
-      });
-      setLoading(false);
-    }, 50);
-  }, [snapshot]);
+    // Step 3: Try LLM analysis (async, may take 10-30s)
+    const llmResult = await callLLMAnalysis(snapshot);
+    if (llmResult) {
+      setAnalysis(prev => prev ? {
+        ...prev,
+        advice: llmResult,
+        source: "llm",
+      } : prev);
+    } else {
+      setAnalysis(prev => prev ? {
+        ...prev,
+        advice: "LLM 不可用，以上为本地 AI 分析",
+        source: "local",
+      } : prev);
+    }
+  }, [snapshot, loading]);
 
   if (snapshot.winner !== Stone.EMPTY) return null;
 
   return (
     <div className="pointer-events-auto">
-      <div className={`${bgPanel} backdrop-blur-sm border ${borderColor} rounded-lg p-3 w-52`}>
+      <div className={`${bgPanel} backdrop-blur-sm border ${borderColor} rounded-lg p-3 w-60`}>
         <div className="flex items-center justify-between mb-2">
           <span className={`${textColor} text-xs font-mono font-bold`}>🔬 训练分析</span>
           <button
@@ -96,13 +203,35 @@ export function TrainingAnalysis() {
         </div>
 
         {analysis ? (
-          <div className={`space-y-1 text-[10px] font-mono ${textDim}`}>
-            <p className={textColor}>{analysis.bestMove}</p>
-            <p>{analysis.score}</p>
-            <p>{analysis.threat}</p>
+          <div className="space-y-1.5 text-[10px] font-mono">
+            {/* Threats */}
+            {analysis.threats.map((t, i) => (
+              <p key={i} className={textDim}>{t}</p>
+            ))}
+
+            {/* Best move */}
+            <p className={textColor}>
+              推荐: <span className="text-yellow-400">{analysis.bestMove}</span>
+            </p>
+
+            {/* Source badge */}
+            <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] ${
+              analysis.source === "llm"
+                ? "bg-green-500/20 text-green-400"
+                : "bg-gray-500/20 text-gray-400"
+            }`}>
+              {analysis.source === "llm" ? "☁️ LLM 分析" : "💻 本地分析"}
+            </span>
+
+            {/* LLM advice */}
+            {analysis.llmText && (
+              <p className={`${textDim} mt-1 leading-relaxed`}>{analysis.llmText}</p>
+            )}
           </div>
         ) : (
-          <p className={`text-[10px] font-mono ${textDim}`}>点击"分析"获取 AI 建议</p>
+          <p className={`text-[10px] font-mono ${textDim}`}>
+            点击"分析"获取 AI 局势评估
+          </p>
         )}
       </div>
     </div>
