@@ -13,7 +13,7 @@ import { CoordInput } from "./components/CoordInput";
 import { CameraDirectionTracker } from "./components/CameraDirectionTracker";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
 import { ReplayControls } from "./components/ReplayControls";
-import { useAiMemoryActions } from "./hooks/useAiMemory";
+import { useAiMemoryActions, useMemoryStats } from "./hooks/useAiMemory";
 import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, resetReplay } from "./hooks/useReplayStore";
 import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice, type Vec3 } from "@connect6/shared";
 
@@ -230,7 +230,8 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
 
   const { sendResetRequest, sendResetConfirm, sendReady } = useWebSocketActions();
   const { pendingReset, showReadyDialog, timer } = useWebSocketState();
-  const { learn: learnFromGame, stats: memoryStats } = useAiMemoryActions();
+  const { learn: learnFromGame } = useAiMemoryActions();
+  const memoryStats = useMemoryStats();
   const replayState = useReplayState();
   const { goLatest } = useReplayActions();
 
@@ -500,14 +501,14 @@ export default function App() {
     }
   }, [store, disconnect]);
 
-  const handleTraining = useCallback((analyze: boolean) => {
+  const handleTraining = useCallback((analyze: boolean, model: AiModelId) => {
     disconnect();
     store.reset();
     resetReplay();
     setRoomId(null);
     setInGame(true);
     setAiColor(null);
-    setAiModel("local");
+    setAiModel(model);
     setGameMode("training");
     setTrainingAnalyze(analyze);
   }, [store, disconnect]);

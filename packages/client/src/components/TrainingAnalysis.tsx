@@ -14,11 +14,11 @@ interface Analysis {
   bestMove: string;
   /** Threat level description */
   threats: string[];
-  /** Strategic recommendation */
+  /** Strategic advice (always present) */
   advice: string;
   /** Source: "llm" or "local" */
-  source: string;
-  /** LLM raw text (if available) */
+  source: "llm" | "local" | "loading";
+  /** LLM deep analysis text (loaded async) */
   llmText?: string;
 }
 
@@ -160,30 +160,24 @@ export function TrainingAnalysis() {
       ? localResult.moves.map(m => `(${m.x},${m.y},${m.z})`).join(" ")
       : "无";
 
-    // Set initial analysis immediately
+    // Set initial analysis immediately (local)
     setAnalysis({
       bestMove: localMove,
       threats: threatLines,
-      advice: "正在请求 LLM 深度分析...",
+      advice: localMove !== "无" ? `本地推荐: ${localMove}` : "无可用着法",
       source: "local",
     });
-    setLoading(false);
 
     // Step 3: Try LLM analysis (async, may take 10-30s)
     const llmResult = await callLLMAnalysis(snapshot);
     if (llmResult) {
       setAnalysis(prev => prev ? {
         ...prev,
-        advice: llmResult,
+        llmText: llmResult,
         source: "llm",
       } : prev);
-    } else {
-      setAnalysis(prev => prev ? {
-        ...prev,
-        advice: "LLM 不可用，以上为本地 AI 分析",
-        source: "local",
-      } : prev);
     }
+    setLoading(false);
   }, [snapshot, loading]);
 
   if (snapshot.winner !== Stone.EMPTY) return null;

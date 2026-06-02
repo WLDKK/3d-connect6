@@ -16,18 +16,18 @@ export function CameraDirectionTracker() {
   const camera = useThree((s) => s.camera);
 
   useFrame(() => {
-    // Get camera's forward direction
     camera.getWorldDirection(_forward);
 
     // Project onto XY plane (ignore Z for horizontal movement)
     _forward.z = 0;
-    _forward.normalize();
 
-    // Right vector = forward rotated 90° around Z
+    // Guard: if camera looks straight down/forward is zero, keep previous values
+    if (_forward.lengthSq() < 0.001) return;
+
+    _forward.normalize();
     _right.set(-_forward.y, _forward.x, 0);
     _right.normalize();
 
-    // Write to shared object
     cameraDir.forward.x = _forward.x;
     cameraDir.forward.y = _forward.y;
     cameraDir.right.x = _right.x;

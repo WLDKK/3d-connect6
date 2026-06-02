@@ -98,10 +98,17 @@ export function CoordInput({ onPreview }: CoordInputProps) {
 
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {
     const g = toGrid(ux, uy, uz);
-    if (isOccupied(g.x, g.y, g.z) || snapshot.winner !== Stone.EMPTY) {
+    if (snapshot.winner !== Stone.EMPTY) {
       onPreview(null);
+      setError("游戏已结束");
       return false;
     }
+    if (isOccupied(g.x, g.y, g.z)) {
+      onPreview(null);
+      setError("该位置已有棋子");
+      return false;
+    }
+    setError("");
     onPreview(g);
     return true;
   }, [toGrid, isOccupied, snapshot.winner, onPreview]);

@@ -74,11 +74,15 @@ export function useAiMemory(): AiMemory {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/** Hook to get memory stats (reactive) */
+export function useMemoryStats(): { entries: number; totalGames: number } {
+  return useSyncExternalStore(subscribe, () => memory.stats, () => memory.stats);
+}
+
 /** Hook to get memory actions */
 export function useAiMemoryActions() {
   return {
     learn: useCallback((state: SerializedState) => learnFromGame(state), []),
     reset: useCallback(() => resetMemory(), []),
-    stats: memory.stats,
   };
 }

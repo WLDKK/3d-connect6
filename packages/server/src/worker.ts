@@ -90,7 +90,7 @@ async function handleAnalyzeRequest(request: Request): Promise<Response> {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (!payload.board || !payload.config) {
+  if (!payload.board || !payload.config || !payload.aiColor) {
     return Response.json({ error: "Missing required fields" }, { status: 400 });
   }
 

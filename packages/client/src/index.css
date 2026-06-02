@@ -41,10 +41,6 @@ body {
   filter: blur(80px);
 }
 
-.lobby-fog-b { display: none; }
-.lobby-vignette { display: none; }
-.lobby-noise { display: none; }
-.lobby-grid { display: none; }
 
 [data-theme="light"] .lobby-fog-a {
   background: radial-gradient(ellipse 60% 50% at 25% 45%, rgba(180,140,80,0.06), transparent);

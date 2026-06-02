@@ -20,7 +20,7 @@ const COLOR_OPTIONS: { value: ColorChoice; label: string }[] = [
 interface LobbyProps {
   onEnterRoom: (roomId: string) => void;
   onLocalPlay: (model: AiModelId, color: ColorChoice) => void;
-  onTraining: (analyze: boolean) => void;
+  onTraining: (analyze: boolean, model: AiModelId) => void;
   onDualAi: (modelBlack: AiModelId, modelWhite: AiModelId) => void;
 }
 
@@ -67,7 +67,7 @@ function MysticCard({ icon, title, subtitle, delay, children }: {
       style={{
         opacity: visible ? 1 : 0,
         transform: visible ? "translate3d(0,0,0)" : "translate3d(0,24px,0)",
-        transition: `opacity 0.6s cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 0.6s cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
+        transition: `opacity 0.6s cubic-bezier(0.22,1,0.36,1), transform 0.6s cubic-bezier(0.22,1,0.36,1)`,
       }}
     >
       <div className="flex items-center gap-2.5 mb-3.5">
@@ -111,6 +111,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
   const [aiModel, setAiModel] = useState<AiModelId>("deepseek-v4-flash");
   const [colorChoice, setColorChoice] = useState<ColorChoice>("random");
   const [analyze, setAnalyze] = useState(true);
+  const [trainModel, setTrainModel] = useState<AiModelId>("deepseek-v4-flash");
   const [dualModelBlack, setDualModelBlack] = useState<AiModelId>("glm-5.1");
   const [dualModelWhite, setDualModelWhite] = useState<AiModelId>("glm-5.1");
   const { status, error } = useWebSocketState();
@@ -172,7 +173,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
                   </div>
                 )}
               </div>
-              <MysticBtn onClick={() => onTraining(analyze)} color="purple">进入训练</MysticBtn>
+              <MysticBtn onClick={() => onTraining(analyze, trainModel)} color="purple">进入训练</MysticBtn>
             </MysticCard>
 
             {/* 3. AI vs AI */}
