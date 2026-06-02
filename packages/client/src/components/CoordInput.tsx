@@ -113,22 +113,6 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     return true;
   }, [toGrid, isOccupied, snapshot.winner, onPreview]);
 
-  /**
-   * Convert a world-space direction to user-coordinate delta.
-   * World X → user X (inverted: world right = user right, but grid x is flipped)
-   * World Y → user Y (same direction)
-   * World Z → user Z (same direction)
-   */
-  const worldDirToUserDelta = useCallback((wx: number, wy: number, wz: number): [number, number, number] => {
-    // World X positive = screen right = user X increasing
-    // But grid x is flipped: user X=0 is at grid x=sizeX-1
-    // So world X positive = user X increasing = grid x decreasing
-    const dx = Math.round(wx);
-    const dy = Math.round(wy);
-    const dz = Math.round(wz);
-    return [dx, dy, dz];
-  }, []);
-
   const moveCursor = useCallback((dx: number, dy: number, dz: number) => {
     const c = cursorRef.current;
     const nx = clamp(c.x + dx, sizeX);
@@ -175,36 +159,41 @@ export function CoordInput({ onPreview }: CoordInputProps) {
       let dx = 0, dy = 0, dz = 0;
 
       switch (e.key) {
+        // ← → : left / right on screen (X axis)
+        // cameraDir.right = camera's right direction projected to XY
+        // User X increasing = right on screen
         case "ArrowLeft": {
-          // Move in the negative camera-right direction
           const r = cameraDir.right;
-          [dx, dy, dz] = worldDirToUserDelta(-r.x, -r.y, 0);
+          dx = -Math.round(r.x);
+          dy = -Math.round(r.y);
           break;
         }
         case "ArrowRight": {
-          // Move in the positive camera-right direction
           const r = cameraDir.right;
-          [dx, dy, dz] = worldDirToUserDelta(r.x, r.y, 0);
+          dx = Math.round(r.x);
+          dy = Math.round(r.y);
           break;
         }
-        case "ArrowUp":
-          dz = 1; // Always world Z up
-          break;
-        case "ArrowDown":
-          dz = -1; // Always world Z down
-          break;
-        case "w": case "W": {
-          // Move forward (into screen from camera perspective)
+        // ↑ ↓ : forward / backward (camera forward direction)
+        case "ArrowUp": {
           const f = cameraDir.forward;
-          [dx, dy, dz] = worldDirToUserDelta(f.x, f.y, 0);
+          dx = Math.round(f.x);
+          dy = Math.round(f.y);
           break;
         }
-        case "s": case "S": {
-          // Move backward (toward camera)
+        case "ArrowDown": {
           const f = cameraDir.forward;
-          [dx, dy, dz] = worldDirToUserDelta(-f.x, -f.y, 0);
+          dx = -Math.round(f.x);
+          dy = -Math.round(f.y);
           break;
         }
+        // PageUp/PageDown: Z axis (up/down)
+        case "PageUp":
+          dz = 1;
+          break;
+        case "PageDown":
+          dz = -1;
+          break;
         case "Enter":
           e.preventDefault();
           e.stopPropagation();
@@ -214,7 +203,6 @@ export function CoordInput({ onPreview }: CoordInputProps) {
           return;
       }
 
-      // Only move if delta is non-zero
       if (dx === 0 && dy === 0 && dz === 0) return;
 
       e.preventDefault();
@@ -224,7 +212,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
 
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [moveCursor, worldDirToUserDelta]);
+  }, [moveCursor]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -262,7 +250,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
         </button>
         {error && <span className="text-red-400 ml-1">{error}</span>}
         <span className="text-cyber-accent/30 ml-2 hidden md:inline">
-          ←→左右 ↑↓上下 W·S前后 Enter确认
+          ←→左右 ↑↓前后 PgUp/PgDn上下 Enter确认
         </span>
       </div>
     </div>
