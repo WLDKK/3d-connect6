@@ -169,7 +169,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
                 </label>
                 {analyze && (
                   <div className="flex-1">
-                    <MysticSelect label="" value={aiModel} onChange={(v) => setAiModel(v as AiModelId)} options={AI_MODELS} />
+                    <MysticSelect label="" value={trainModel} onChange={(v) => setTrainModel(v as AiModelId)} options={AI_MODELS} />
                   </div>
                 )}
               </div>
