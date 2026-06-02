@@ -11,6 +11,8 @@ import { useViewState } from "./hooks/useViewStore";
 import { AiController } from "./components/AiController";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
 import { ReplayControls } from "./components/ReplayControls";
+import { CoordInput } from "./components/CoordInput";
+import { CameraDirectionTracker } from "./components/CameraDirectionTracker";
 import { useAiMemoryActions, useMemoryStats } from "./hooks/useAiMemory";
 import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, resetReplay } from "./hooks/useReplayStore";
 import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice, type Vec3 } from "@connect6/shared";
@@ -144,98 +146,6 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, me
   );
 }
 
-function parseUserCoords(raw: string): [number, number, number] | null {
-  const trimmed = raw.trim();
-  let parts: number[];
-  if (/^\d{3}$/.test(trimmed)) {
-    parts = trimmed.split("").map(Number);
-  } else {
-    parts = trimmed.split(/[,，\s]+/).filter(Boolean).map((s) => parseInt(s, 10));
-  }
-  if (parts.length !== 3 || parts.some(isNaN)) return null;
-  return [parts[0], parts[1], parts[2]];
-}
-
-function CoordInput({ onPreview }: { onPreview: (coords: { x: number; y: number; z: number } | null) => void }) {
-  const snapshot = useGameSnapshot();
-  const { placeStone } = useGameActions();
-  const [input, setInput] = useState("");
-  const [error, setError] = useState("");
-
-  const { sizeX, sizeY, sizeZ } = snapshot.config;
-
-  const toGrid = useCallback((ux: number, uy: number, uz: number) => ({
-    x: sizeX - 1 - ux, y: uy, z: uz,
-  }), [sizeX]);
-
-  const tryPreview = useCallback((val: string) => {
-    setError("");
-    const parsed = parseUserCoords(val);
-    if (!parsed) { onPreview(null); return; }
-    const [ux, uy, uz] = parsed;
-    if (ux < 0 || ux >= sizeX || uy < 0 || uy >= sizeY || uz < 0 || uz >= sizeZ) {
-      onPreview(null); return;
-    }
-    const g = toGrid(ux, uy, uz);
-    const idx = g.z * sizeY * sizeX + g.y * sizeX + g.x;
-    if (snapshot.board[idx] !== Stone.EMPTY || snapshot.winner !== Stone.EMPTY) {
-      onPreview(null); return;
-    }
-    onPreview(g);
-  }, [snapshot, sizeX, sizeY, sizeZ, toGrid, onPreview]);
-
-  const handleSubmit = useCallback(() => {
-    setError("");
-    const parsed = parseUserCoords(input);
-    if (!parsed) {
-      setError("格式：x,y,z 或 xyz（如 1,2,3 或 222）");
-      setInput(""); onPreview(null); return;
-    }
-    const [ux, uy, uz] = parsed;
-    if (ux < 0 || ux >= sizeX || uy < 0 || uy >= sizeY || uz < 0 || uz >= sizeZ) {
-      setError(`坐标越界（范围 0~${sizeX - 1}）`);
-      setInput(""); onPreview(null); return;
-    }
-    const g = toGrid(ux, uy, uz);
-    const idx = g.z * sizeY * sizeX + g.y * sizeX + g.x;
-    if (snapshot.board[idx] !== Stone.EMPTY) {
-      setError("该位置已有棋子");
-      setInput(""); onPreview(null); return;
-    }
-    if (snapshot.winner !== Stone.EMPTY) {
-      setError("游戏已结束");
-      setInput(""); onPreview(null); return;
-    }
-    placeStone(g.x, g.y, g.z);
-    setInput("");
-    onPreview(null);
-  }, [input, snapshot, sizeX, sizeY, sizeZ, toGrid, placeStone, onPreview]);
-
-  return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-xs">
-      <div className="bg-black/70 backdrop-blur-sm border border-cyber-grid rounded-lg px-4 py-2 flex items-center gap-2">
-        <span className="text-cyber-accent opacity-70">坐标输入</span>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => { setInput(e.target.value); tryPreview(e.target.value); }}
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          placeholder="x,y,z"
-          title="支持格式：x,y,z / x，y，z / xyz / x y z"
-          className="bg-cyber-grid/50 text-white px-2 py-1 rounded w-28 outline-none border border-transparent focus:border-cyber-accent text-center"
-        />
-        <button
-          onClick={handleSubmit}
-          className="px-3 py-1 bg-cyber-accent/20 text-cyber-accent rounded hover:bg-cyber-accent/30 transition-colors"
-        >
-          落子
-        </button>
-        {error && <span className="text-red-400 ml-2">{error}</span>}
-      </div>
-    </div>
-  );
-}
-
 function MultiplayerSync({ roomId }: { roomId: string }) {
   const { loadState, setSendMove } = useGameActions();
   const { sendMove, setOnStateUpdate, setOnGameStart } = useWebSocketActions();
@@ -354,6 +264,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         <Suspense fallback={null}>
           <GameScene previewCoords={previewCoords} replayBoard={replayBoard} />
         </Suspense>
+        <CameraDirectionTracker />
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
       </Canvas>
 
