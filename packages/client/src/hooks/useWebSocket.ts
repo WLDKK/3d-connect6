@@ -148,7 +148,13 @@ function doConnect(url: string) {
   };
 
   ws.onclose = () => {
-    setState({ status: "disconnected" });
+    // Clear volatile game state, keep playerColor/roomInfo for reconnect window
+    setState({
+      status: "disconnected",
+      timer: null,
+      pendingReset: false,
+      showReadyDialog: false,
+    });
     ws = null;
     // Auto-reconnect
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {

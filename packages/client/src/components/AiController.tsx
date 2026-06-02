@@ -42,6 +42,7 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
   const { placeStone } = useGameActions();
   const memory = useAiMemory();
   const busyRef = useRef(false);
+  const genRef = useRef(0); // generation counter to prevent stale callbacks
 
   useEffect(() => {
     if (snapshot.winner !== Stone.EMPTY) return;
@@ -61,10 +62,14 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
     };
 
     busyRef.current = true;
+    genRef.current++;
+    const myGen = genRef.current;
     onThinking?.(true);
 
     const timer = setTimeout(async () => {
       try {
+        // Abort if a newer effect has started
+        if (genRef.current !== myGen) return;
         let moves: { x: number; y: number; z: number }[] = [];
         let usedLlm = false;
 
@@ -83,12 +88,16 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
           }
         }
 
+        // Abort if a newer effect has started
+        if (genRef.current !== myGen) return;
+
         onAiSource?.(usedLlm ? "llm" : "local");
 
         for (const move of moves) {
           placeStone(move.x, move.y, move.z);
         }
       } catch {
+        if (genRef.current !== myGen) return;
         onAiSource?.("local");
         const localResult = computeAiMoveWithMemory(req, memory);
         for (const move of localResult.moves) {

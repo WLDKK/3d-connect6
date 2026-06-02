@@ -234,15 +234,16 @@ function analyzePosition(board: number[], config: BoardConfig, aiStone: Stone): 
       for (let x = 0; x < sx; x++) {
         if (board[z * sy * sx + y * sx + x] !== Stone.EMPTY) continue;
 
+        // scoreCell returns line scores: 500000=win, 50000=open-5, 1200=open-4, 100=open-3
         const myScore = scoreCell(board, config, x, y, z, aiStone);
         const oppScore = scoreCell(board, config, x, y, z, oppStone);
 
-        if (myScore >= winLength) { myWins++; myWinMoves.push(`(${x},${y},${z})`); }
-        if (oppScore >= winLength) { oppWins++; oppWinMoves.push(`(${x},${y},${z})`); }
-        if (myScore === winLength - 1) { myOpen5++; myOpen5Moves.push(`(${x},${y},${z})`); }
-        if (oppScore === winLength - 1) { oppOpen5++; oppOpen5Moves.push(`(${x},${y},${z})`); }
-        if (myScore === winLength - 2) myOpen4++;
-        if (oppScore === winLength - 2) oppOpen4++;
+        if (myScore >= 500000) { myWins++; myWinMoves.push(`(${x},${y},${z})`); }
+        if (oppScore >= 500000) { oppWins++; oppWinMoves.push(`(${x},${y},${z})`); }
+        if (myScore >= 50000 && myScore < 500000) { myOpen5++; myOpen5Moves.push(`(${x},${y},${z})`); }
+        if (oppScore >= 50000 && oppScore < 500000) { oppOpen5++; oppOpen5Moves.push(`(${x},${y},${z})`); }
+        if (myScore >= 1200 && myScore < 50000) myOpen4++;
+        if (oppScore >= 1200 && oppScore < 50000) oppOpen4++;
       }
     }
   }

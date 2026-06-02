@@ -258,10 +258,6 @@ export class GameRoom extends DurableObject {
     blackWs.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
     whiteWs.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
 
-    // Persist player slot assignment for reconnection
-    this.ctx.storage.put("blackSlotOccupied", true);
-    this.ctx.storage.put("whiteSlotOccupied", true);
-
     blackWs.send(JSON.stringify({
       type: MsgType.PLAYER_ASSIGNED,
       payload: { color: Player.BLACK } as PlayerAssignedPayload,

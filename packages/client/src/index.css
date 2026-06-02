@@ -162,13 +162,10 @@ body {
 [data-theme="light"] .mystic-card input[type="text"]::placeholder { color: #999; }
 [data-theme="light"] .mystic-card input[type="checkbox"] { accent-color: #7e22ce; }
 
-/* Light mode: header */
-[data-theme="light"] .bg-gradient-to-r.from-white.via-slate-200.to-slate-400 {
+/* Light mode: lobby header gradient */
+[data-theme="light"] .lobby-root .bg-gradient-to-r.from-white.via-slate-200.to-slate-400 {
   background-image: linear-gradient(to right, #111, #333, #555);
 }
-[data-theme="light"] .text-slate-600 { color: #888; }
-[data-theme="light"] .text-slate-700 { color: #999; }
-[data-theme="light"] .text-slate-800 { color: #aaa; }
 
 /* ── Fade up animation ── */
 @keyframes fadeUp {
