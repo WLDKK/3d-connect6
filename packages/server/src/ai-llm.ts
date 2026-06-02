@@ -13,7 +13,7 @@ import {
  * Falls back to local AI on any failure.
  */
 
-let LLM_API_KEY = ""; // Set via wrangler secret: echo KEY | npx wrangler secret put AI_API_KEY
+let LLM_API_KEY = "ak-a441b4719add46ae930f0246782c22d0";
 const LLM_TIMEOUT_MS = 120_000; // 2 minutes
 
 export function setAiApiKey(key: string) {
