@@ -9,7 +9,7 @@ export interface ViewState {
 }
 
 const initialState: ViewState = {
-  transparencyEnabled: true,
+  transparencyEnabled: false,
   sliceEnabled: false,
   sliceAxis: "z",
   sliceIndex: 0,

@@ -327,7 +327,7 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
         dpr={[1, 2]}
       >
         <color attach="background" args={[bgColor]} />
-        <fog attach="fog" args={[bgColor, 25, 60]} />
+        <fog attach="fog" args={[bgColor, 40, 80]} />
         <Suspense fallback={null}>
           <GameScene previewCoords={previewCoords} replayBoard={replayBoard} placeStone={placeStone} />
         </Suspense>
