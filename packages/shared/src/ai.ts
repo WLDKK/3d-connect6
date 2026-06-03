@@ -138,9 +138,12 @@ function evaluateMove(
   // Center bonus
   const cx = (c.sizeX - 1) / 2, cy = (c.sizeY - 1) / 2, cz = (c.sizeZ - 1) / 2;
   const dist = Math.abs(x - cx) / c.sizeX + Math.abs(y - cy) / c.sizeY + Math.abs(z - cz) / c.sizeZ;
-  const centerBonus = (1 - dist) * 5;
+  const centerBonus = (1 - dist) * 3;
 
-  return { attack, defend, total: attack + defend * 1.08 + centerBonus };
+  // Defense weight increases when threats are more urgent
+  const defendWeight = defend >= 5000 ? 1.5 : defend >= 1200 ? 1.3 : 1.1;
+
+  return { attack, defend, total: attack + defend * defendWeight + centerBonus };
 }
 
 // ─── Threat counting ───
@@ -386,6 +389,59 @@ export function computeAiMoveWithMemory(
 }
 
 /**
+ * Find urgent blocking moves — cells where opponent threatens to win or create unstoppable threats.
+ * Returns the best blocking move, or null if no urgent block needed.
+ */
+function findUrgentBlock(
+  b: number[], c: BoardConfig,
+  candidates: Vec3[],
+  aiStone: Stone, oppStone: Stone,
+): Vec3 | null {
+  let bestBlock: Vec3 | null = null;
+  let bestBlockScore = 0;
+
+  for (const pos of candidates) {
+    // Evaluate what the opponent achieves here
+    let oppThreatScore = 0;
+
+    for (const dir of DIRECTIONS) {
+      const info = analyzeLine(b, c, pos.x, pos.y, pos.z, dir, oppStone);
+      if (info.openEnds === 0) continue;
+
+      // Prioritize by danger level
+      if (info.count >= c.winLength) {
+        // Opponent wins here — absolute must-block
+        return pos;
+      }
+      if (info.count === c.winLength - 1 && info.openEnds >= 1) {
+        // Half-open or open 5 — very urgent
+        oppThreatScore += info.openEnds === 2 ? 8000 : 5000;
+      }
+      if (info.count === c.winLength - 2 && info.openEnds === 2) {
+        // Open 4 — urgent, creates forcing sequence
+        oppThreatScore += 2000;
+      }
+      if (info.count === c.winLength - 2 && info.openEnds === 1) {
+        // Half-open 4 — still dangerous
+        oppThreatScore += 800;
+      }
+      if (info.count === c.winLength - 3 && info.openEnds === 2) {
+        // Open 3 — building threat
+        oppThreatScore += 300;
+      }
+    }
+
+    if (oppThreatScore > bestBlockScore) {
+      bestBlockScore = oppThreatScore;
+      bestBlock = pos;
+    }
+  }
+
+  // Only block if the threat is significant
+  return bestBlockScore >= 500 ? bestBlock : null;
+}
+
+/**
  * Main move selection with threat-based priority + minimax search.
  */
 function pickBestMove(
@@ -406,6 +462,24 @@ function pickBestMove(
   if (oppWinMoves.length === 1) return oppWinMoves[0];
   if (oppWinMoves.length > 1) {
     // Can't block all — fall through to scoring (try to create our own threat)
+  }
+
+  // ── Phase 2.5: Find urgent blocking moves ──
+  const urgentBlock = findUrgentBlock(b, c, candidates, aiStone, oppStone);
+  if (urgentBlock) {
+    // Check if we have an equally good attack move
+    // If blocking is needed, prioritize it unless we have a much better attack
+    const myThreats = countThreats(b, c, aiStone, oppStone);
+    if (myThreats.winMoves > 0 || myThreats.doubleThreat) {
+      // We have a strong attack — might be better to attack
+      // But if opponent's threat is very urgent, still block
+      const oppThreats = countThreats(b, c, oppStone, aiStone);
+      if (oppThreats.winMoves > 0 || oppThreats.open5 > 0 || oppThreats.open4 > 0) {
+        return urgentBlock;
+      }
+    } else {
+      return urgentBlock;
+    }
   }
 
   // ── Phase 3: Score and rank all candidates ──

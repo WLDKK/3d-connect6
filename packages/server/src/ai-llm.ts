@@ -224,8 +224,11 @@ You are ${colorName}. Opponent is ${oppName}.
 ═══ STRATEGY (by priority) ═══
 
 1. WIN: If you can complete ${winLength} in a row, do it immediately.
-2. BLOCK: If opponent has a line of ${winLength - 1} with both ends open, block one end.
-   If opponent has TWO such lines, you can only block one → counter-attack instead.
+2. BLOCK IMMEDIATE THREATS (HIGHEST PRIORITY AFTER WINNING):
+   - Opponent has ${winLength - 1} in a row with open ends → BLOCK NOW
+   - Opponent has ${winLength - 2} in a row with both ends open → BLOCK NOW (forcing)
+   - Opponent has ${winLength - 1} with one end blocked → still block the open end
+   - Even ${winLength - 3} with both ends open is dangerous — consider blocking
 3. DOUBLE THREAT: Create TWO separate open-${winLength - 1} lines simultaneously.
    Opponent blocks one → you complete the other → WIN. This is the KEY to Connect6.
 4. BUILD: Create open lines (both ends empty). Open-4 > half-open-4 > open-3.
@@ -234,6 +237,8 @@ You are ${colorName}. Opponent is ${oppName}.
    a) Two separate threats (best)
    b) One block + one attack
    c) Extend one line from open-3 to open-5
+
+⚠️ NEVER ignore an opponent threat to build your own line. Defense comes first!
 
 ═══ 3D AWARENESS ═══
 • Do NOT forget space diagonals — they're the hardest to block.
