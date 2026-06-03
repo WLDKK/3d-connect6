@@ -348,17 +348,63 @@ function minimax(
 
 // ─── Main AI entry points ───
 
+/**
+ * Check if the AI can win with its remaining stones this turn.
+ * Tries all single-stone wins first, then all two-stone combinations.
+ * Returns the winning moves immediately if found.
+ */
+function findImmediateWin(
+  b: number[], c: BoardConfig,
+  aiStone: Stone, stonesToPlace: number,
+): Vec3[] | null {
+  const candidates = getCandidates(b, c);
+
+  // Single stone win
+  if (stonesToPlace >= 1) {
+    for (const pos of candidates) {
+      if (isWinningMove(b, c, pos.x, pos.y, pos.z, aiStone)) {
+        return [pos];
+      }
+    }
+  }
+
+  // Two stone win: place first stone anywhere, check if second wins
+  if (stonesToPlace >= 2) {
+    for (const first of candidates) {
+      const sim = [...b];
+      setStone(sim, first.x, first.y, first.z, c, aiStone);
+      // After placing first stone, check if any second stone wins
+      const secondCandidates = getCandidates(sim, c);
+      for (const second of secondCandidates) {
+        if (isWinningMove(sim, c, second.x, second.y, second.z, aiStone)) {
+          return [first, second];
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export function computeAiMove(req: AiRequestPayload): AiResponsePayload {
   const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
   if (currentPlayer !== aiColor) return { moves: [] };
 
   const aiStone = aiColor as unknown as Stone;
   const oppStone = (aiColor === Player.BLACK ? Player.WHITE : Player.BLACK) as unknown as Stone;
-  const moves: Vec3[] = [];
   const workingBoard = [...board];
 
+  // First check: can we win immediately?
+  const winMoves = findImmediateWin(workingBoard, config, aiStone, stonesToPlace);
+  if (winMoves) return { moves: winMoves };
+
+  // Second check: do we have a guaranteed win (two open-5 threats)?
+  // If so, skip defensive blocking — just build toward the win.
+  const guaranteed = hasGuaranteedWin(workingBoard, config, aiStone, oppStone);
+
+  const moves: Vec3[] = [];
   for (let m = 0; m < stonesToPlace; m++) {
-    const move = pickBestMove(workingBoard, config, aiStone, oppStone);
+    const move = pickBestMove(workingBoard, config, aiStone, oppStone, undefined, guaranteed);
     if (!move) break;
     moves.push(move);
     setStone(workingBoard, move.x, move.y, move.z, config, aiStone);
@@ -375,11 +421,19 @@ export function computeAiMoveWithMemory(
 
   const aiStone = aiColor as unknown as Stone;
   const oppStone = (aiColor === Player.BLACK ? Player.WHITE : Player.BLACK) as unknown as Stone;
-  const moves: Vec3[] = [];
   const workingBoard = [...board];
 
+  // First check: can we win immediately?
+  const winMoves = findImmediateWin(workingBoard, config, aiStone, stonesToPlace);
+  if (winMoves) return { moves: winMoves };
+
+  // Second check: guaranteed win (two open-5 threats)?
+  const guaranteed = hasGuaranteedWin(workingBoard, config, aiStone, oppStone);
+
+  // Normal play with memory
+  const moves: Vec3[] = [];
   for (let m = 0; m < stonesToPlace; m++) {
-    const move = pickBestMove(workingBoard, config, aiStone, oppStone, memory);
+    const move = pickBestMove(workingBoard, config, aiStone, oppStone, memory, guaranteed);
     if (!move) break;
     moves.push(move);
     setStone(workingBoard, move.x, move.y, move.z, config, aiStone);
@@ -442,12 +496,26 @@ function findUrgentBlock(
 }
 
 /**
+ * Check if AI has a guaranteed win next turn (e.g., two open-5 threats).
+ * If so, any move that preserves both threats is winning — no need to block.
+ */
+function hasGuaranteedWin(
+  b: number[], c: BoardConfig,
+  aiStone: Stone, oppStone: Stone,
+): boolean {
+  const threats = countThreats(b, c, aiStone, oppStone);
+  // Two or more open-5 threats = unstoppable (opponent can only block one)
+  return threats.open5 >= 2;
+}
+
+/**
  * Main move selection with threat-based priority + minimax search.
  */
 function pickBestMove(
   b: number[], c: BoardConfig,
   aiStone: Stone, oppStone: Stone,
   memory?: AiMemory,
+  skipBlock = false,
 ): Vec3 | null {
   const candidates = getCandidates(b, c);
   if (candidates.length === 0) return null;
@@ -457,28 +525,23 @@ function pickBestMove(
     if (isWinningMove(b, c, pos.x, pos.y, pos.z, aiStone)) return pos;
   }
 
-  // ── Phase 2: Block opponent's immediate wins ──
+  // ── Phase 2: Block opponent's immediate wins (unless we have guaranteed win) ──
   const oppWinMoves = candidates.filter(pos => isWinningMove(b, c, pos.x, pos.y, pos.z, oppStone));
-  if (oppWinMoves.length === 1) return oppWinMoves[0];
-  if (oppWinMoves.length > 1) {
-    // Can't block all — fall through to scoring (try to create our own threat)
-  }
+  if (!skipBlock) {
+    if (oppWinMoves.length === 1) return oppWinMoves[0];
 
-  // ── Phase 2.5: Find urgent blocking moves ──
-  const urgentBlock = findUrgentBlock(b, c, candidates, aiStone, oppStone);
-  if (urgentBlock) {
-    // Check if we have an equally good attack move
-    // If blocking is needed, prioritize it unless we have a much better attack
-    const myThreats = countThreats(b, c, aiStone, oppStone);
-    if (myThreats.winMoves > 0 || myThreats.doubleThreat) {
-      // We have a strong attack — might be better to attack
-      // But if opponent's threat is very urgent, still block
-      const oppThreats = countThreats(b, c, oppStone, aiStone);
-      if (oppThreats.winMoves > 0 || oppThreats.open5 > 0 || oppThreats.open4 > 0) {
+    // ── Phase 2.5: Find urgent blocking moves ──
+    const urgentBlock = findUrgentBlock(b, c, candidates, aiStone, oppStone);
+    if (urgentBlock) {
+      const myThreats = countThreats(b, c, aiStone, oppStone);
+      if (myThreats.winMoves > 0 || myThreats.doubleThreat) {
+        const oppThreats = countThreats(b, c, oppStone, aiStone);
+        if (oppThreats.winMoves > 0 || oppThreats.open5 > 0 || oppThreats.open4 > 0) {
+          return urgentBlock;
+        }
+      } else {
         return urgentBlock;
       }
-    } else {
-      return urgentBlock;
     }
   }
 
