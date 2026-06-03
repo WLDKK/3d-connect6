@@ -54,13 +54,6 @@ export function CoordInput({ onPreview }: CoordInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<() => void>(() => {});
 
-  // Board world bounds for coordinate mapping
-  const CELL = 1.5;
-  const worldMinX = -((sizeX - 1) * CELL) / 2;
-  const worldMaxX = ((sizeX - 1) * CELL) / 2;
-  const worldMinY = -((sizeY - 1) * CELL) / 2;
-  const worldMaxY = ((sizeY - 1) * CELL) / 2;
-
   const toGrid = useCallback((ux: number, uy: number, uz: number) => ({
     x: sizeX - 1 - ux, y: uy, z: uz,
   }), [sizeX]);

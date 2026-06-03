@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { computeAiMove, computeAiMoveWithMemory, Player, Stone, type AiRequestPayload, type AiResponsePayload, type AiModelId } from "@connect6/shared";
+import { computeAiMoveWithMemory, Player, Stone, type AiRequestPayload, type AiResponsePayload, type AiModelId } from "@connect6/shared";
 import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
 import { useAiMemory } from "../hooks/useAiMemory";
 
