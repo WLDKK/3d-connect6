@@ -7,7 +7,7 @@ import { Stones } from "./Stones";
 import { HoverIndicator } from "./HoverIndicator";
 import { AxisLabels } from "./AxisLabels";
 import { PreviewStone } from "./PreviewStone";
-import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
+import { useGameSnapshot } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
 import { Player, Stone } from "@connect6/shared";
 
@@ -207,7 +207,6 @@ export function GameScene({ previewCoords, replayBoard }: {
   replayBoard?: number[] | null;
 }) {
   const snapshot = useGameSnapshot();
-  const { placeStone } = useGameActions();
   const { transparencyEnabled } = useViewState();
   const [hoverPos, setHoverPos] = useState<[number, number, number] | null>(null);
   const [hoverGrid, setHoverGrid] = useState<{ x: number; y: number; z: number } | null>(null);
