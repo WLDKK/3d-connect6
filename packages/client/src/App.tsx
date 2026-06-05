@@ -20,7 +20,7 @@ import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice, typ
 import { API_BASE, WS_BASE } from "./config";
 
 const AI_MODEL_LABELS: Record<AiModelId, string> = {
-  "local": "本地 AI",
+  "local": "贪心Pro",
   "qwen3.6-plus": "Qwen 3.6+",
   "qwen3.7-max": "Qwen 3.7 Max",
   "deepseek-v4-flash": "DeepSeek V4",

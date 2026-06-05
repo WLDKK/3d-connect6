@@ -24,47 +24,71 @@ function inBounds(x: number, y: number, z: number, c: BoardConfig) {
 /**
  * Explain WHY a move at (x,y,z) is good — what lines it creates or blocks.
  */
+/**
+ * Analyze a line through (x,y,z) in direction `dir` for `color`,
+ * treating (x,y,z) as if it were occupied by `color`.
+ * Counts consecutive stones and handles gap patterns.
+ * Returns { count, openEnds } — count includes the cell itself.
+ */
+function analyzeLineThrough(
+  board: number[], config: BoardConfig,
+  x: number, y: number, z: number,
+  dir: Direction, color: Stone,
+): { count: number; openEnds: number } {
+  // Walk forward from (x+dir)
+  let fwd = 0, fwdOpen = false;
+  let cx = x + dir.x, cy = y + dir.y, cz = z + dir.z;
+  while (inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === color) {
+    fwd++;
+    cx += dir.x; cy += dir.y; cz += dir.z;
+  }
+  fwdOpen = inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === Stone.EMPTY;
+
+  // Walk backward from (x-dir)
+  const nd = { x: -dir.x, y: -dir.y, z: -dir.z };
+  let rev = 0, revOpen = false;
+  cx = x + nd.x; cy = y + nd.y; cz = z + nd.z;
+  while (inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === color) {
+    rev++;
+    cx += nd.x; cy += nd.y; cz += nd.z;
+  }
+  revOpen = inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === Stone.EMPTY;
+
+  const count = 1 + fwd + rev;
+  const openEnds = (fwdOpen ? 1 : 0) + (revOpen ? 1 : 0);
+  return { count, openEnds };
+}
+
 function explainMove(
   board: number[], config: BoardConfig,
   x: number, y: number, z: number,
   myStone: Stone, oppStone: Stone,
 ): string {
   const reasons: string[] = [];
-  const neg = (d: Direction): Direction => ({ x: -d.x, y: -d.y, z: -d.z });
+  const { winLength } = config;
 
   for (const dir of DIRECTIONS) {
-    // My lines: count consecutive stones in both directions from (x,y,z)
-    const myFwd = countDir(board, config, x, y, z, dir, myStone);
-    const myRev = countDir(board, config, x, y, z, neg(dir), myStone);
-    const myCount = 1 + myFwd + myRev; // +1 for the cell itself
-    const myOpenFwd = isOpenEnd(board, config, x, y, z, dir, myStone);
-    const myOpenRev = isOpenEnd(board, config, x, y, z, neg(dir), myStone);
-    const myOpenEnds = (myOpenFwd ? 1 : 0) + (myOpenRev ? 1 : 0);
-
-    // Opponent lines through this cell
-    const oppFwd = countDir(board, config, x, y, z, dir, oppStone);
-    const oppRev = countDir(board, config, x, y, z, neg(dir), oppStone);
-    const oppCount = 1 + oppFwd + oppRev;
-    const oppOpenFwd = isOpenEnd(board, config, x, y, z, dir, oppStone);
-    const oppOpenRev = isOpenEnd(board, config, x, y, z, neg(dir), oppStone);
-    const oppOpenEnds = (oppOpenFwd ? 1 : 0) + (oppOpenRev ? 1 : 0);
+    // Analyze as if placing my stone at (x,y,z)
+    const my = analyzeLineThrough(board, config, x, y, z, dir, myStone);
+    // Analyze opponent's line through this cell (defensive value)
+    const opp = analyzeLineThrough(board, config, x, y, z, dir, oppStone);
 
     // Offensive
-    if (myCount >= config.winLength) {
-      reasons.push(`✅ 完成 ${myCount} 连！直接获胜`);
-    } else if (myCount === config.winLength - 1 && myOpenEnds >= 1) {
-      reasons.push(`🎯 形成 ${myCount} 连${myOpenEnds === 2 ? "（双开）" : "（单开）"}，下一步可赢`);
-    } else if (myCount >= 3 && myOpenEnds === 2) {
-      reasons.push(`📈 建立 ${myCount} 连开放线`);
+    if (my.count >= winLength) {
+      reasons.push(`✅ 完成 ${my.count} 连！直接获胜`);
+    } else if (my.count === winLength - 1 && my.openEnds >= 1) {
+      reasons.push(`🎯 形成 ${my.count} 连${my.openEnds === 2 ? "（双开）" : "（单开）"}，下一步可赢`);
+    } else if (my.count >= 3 && my.openEnds === 2) {
+      reasons.push(`📈 建立 ${my.count} 连开放线`);
     }
 
     // Defensive
-    if (oppCount >= config.winLength) {
-      reasons.push(`🚨 堵住对手 ${oppCount} 连！阻止对手获胜`);
-    } else if (oppCount === config.winLength - 1 && oppOpenEnds >= 1) {
-      reasons.push(`🛡️ 堵住对手 ${oppCount} 连${oppOpenEnds === 2 ? "（双开威胁）" : "（单开威胁）"}`);
-    } else if (oppCount >= 3 && oppOpenEnds === 2) {
-      reasons.push(`🛡️ 堵住对手 ${oppCount} 连开放线`);
+    if (opp.count >= winLength) {
+      reasons.push(`🚨 堵住对手 ${opp.count} 连！阻止对手获胜`);
+    } else if (opp.count === winLength - 1 && opp.openEnds >= 1) {
+      reasons.push(`🛡️ 堵住对手 ${opp.count} 连${opp.openEnds === 2 ? "（双开威胁）" : "（单开威胁）"}`);
+    } else if (opp.count >= 3 && opp.openEnds === 2) {
+      reasons.push(`🛡️ 堵住对手 ${opp.count} 连开放线`);
     }
   }
 
@@ -79,42 +103,6 @@ function explainMove(
   return reasons[0]; // Return the most important reason
 }
 
-/**
- * Count consecutive stones of `color` starting from (x,y,z) going in `dir`.
- * Returns count of stones found (not including the starting cell).
- */
-function countDir(
-  board: number[], config: BoardConfig,
-  x: number, y: number, z: number,
-  dir: Direction, color: Stone,
-): number {
-  let count = 0;
-  let cx = x + dir.x, cy = y + dir.y, cz = z + dir.z;
-  while (inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === color) {
-    count++;
-    cx += dir.x; cy += dir.y; cz += dir.z;
-  }
-  return count;
-}
-
-/**
- * Check if the cell at the far end of a line of `color` stones in `dir` from (x,y,z) is empty.
- * Walks past consecutive stones of `color` starting from (x+dir, y+dir, z+dir).
- */
-function isOpenEnd(
-  board: number[], config: BoardConfig,
-  x: number, y: number, z: number,
-  dir: Direction, color: Stone,
-): boolean {
-  // Start from the cell adjacent to (x,y,z) in `dir`
-  let cx = x + dir.x, cy = y + dir.y, cz = z + dir.z;
-  // Walk past consecutive stones of `color`
-  while (inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === color) {
-    cx += dir.x; cy += dir.y; cz += dir.z;
-  }
-  // Check if the cell at the far end is empty
-  return inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === Stone.EMPTY;
-}
 
 type Direction = { x: number; y: number; z: number };
 

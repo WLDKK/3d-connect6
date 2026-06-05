@@ -4,7 +4,7 @@ import { useViewState, useViewActions } from "../hooks/useViewStore";
 import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
 
 const AI_MODELS: { id: AiModelId; label: string }[] = [
-  { id: "local", label: "本地 AI（离线）" },
+  { id: "local", label: "贪心Pro（算法）" },
   { id: "qwen3.6-plus", label: "Qwen 3.6 Plus" },
   { id: "qwen3.7-max", label: "Qwen 3.7 Max" },
   { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
@@ -108,10 +108,10 @@ function MysticBtn({ onClick, children, color = "cyan", disabled }: {
 /* ── Main Lobby ── */
 export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyProps) {
   const [roomId, setRoomId] = useState("");
-  const [aiModel, setAiModel] = useState<AiModelId>("deepseek-v4-flash");
+  const [aiModel, setAiModel] = useState<AiModelId>("local");
   const [colorChoice, setColorChoice] = useState<ColorChoice>("random");
   const [analyze, setAnalyze] = useState(true);
-  const [trainModel, setTrainModel] = useState<AiModelId>("deepseek-v4-flash");
+  const [trainModel, setTrainModel] = useState<AiModelId>("local");
   const [dualModelBlack, setDualModelBlack] = useState<AiModelId>("glm-5.1");
   const [dualModelWhite, setDualModelWhite] = useState<AiModelId>("glm-5.1");
   const { status, error } = useWebSocketState();
