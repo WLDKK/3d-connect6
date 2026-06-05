@@ -405,18 +405,46 @@ export async function callLLMForAnalysis(req: AiRequestPayload): Promise<string 
     lines.push(layer.join("\n"));
   }
 
-  const system = `You are a Connect6 game analyst. Provide concise strategic analysis.
-Board: ${sx}×${sy}×${sz} 3D. Win: ${config.winLength} in a row (13 directions: 3 axes + 6 face diagonals + 4 space diagonals).
-Respond in the same language as the user's question. Be brief and direct.`;
+  // Pre-compute threat data for the prompt
+  const oppStone = aiStone === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
+  let myWins = 0, oppWins = 0, myOpen5 = 0, oppOpen5 = 0;
+  for (let z = 0; z < sz; z++) {
+    for (let y = 0; y < sy; y++) {
+      for (let x = 0; x < sx; x++) {
+        if (board[z * sy * sx + y * sx + x] !== Stone.EMPTY) continue;
+        const ms = scoreCell(board, config, x, y, z, aiStone);
+        const os = scoreCell(board, config, x, y, z, oppStone);
+        if (ms >= 500000) myWins++;
+        if (os >= 500000) oppWins++;
+        if (ms >= 50000 && ms < 500000) myOpen5++;
+        if (os >= 50000 && os < 500000) oppOpen5++;
+      }
+    }
+  }
 
-  const user = `Current player: ${colorName}, must place ${stonesToPlace} stone(s).
+  const threatSummary = [
+    oppWins > 0 ? `对手有${oppWins}个直接获胜点` : "",
+    myWins > 0 ? `你有${myWins}个直接获胜点` : "",
+    oppOpen5 > 0 ? `对手有${oppOpen5}个差一子的威胁` : "",
+    myOpen5 > 0 ? `你有${myOpen5}个差一子的机会` : "",
+  ].filter(Boolean).join("；") || "无紧急威胁";
+
+  const system = `你是一个专业的Connect6游戏分析师。用中文回答，简洁直接。
+棋盘: ${sx}×${sy}×${sz} 三维。胜利条件: ${config.winLength}子连成一线(13个方向)。
+你的回答必须具体指出坐标位置，不要泛泛而谈。`;
+
+  const user = `当前局面分析:
+- 当前玩家: ${colorName}，需要放 ${stonesToPlace} 颗棋子
+- 威胁评估: ${threatSummary}
 
 ${lines.join("\n")}
 
-Analyze this position in 3-5 lines:
-1. Who is winning and why?
-2. Best move for current player and why?
-3. Key threat or opportunity to watch for?`;
+请分析:
+1. 最佳落子位置是哪里？(给出具体坐标)
+2. 为什么这个位置最好？(能形成什么线？能堵住什么威胁？)
+3. 有没有必须立即应对的威胁？
+
+直接给出结论，不要太长。`;
 
   try {
     const controller = new AbortController();
