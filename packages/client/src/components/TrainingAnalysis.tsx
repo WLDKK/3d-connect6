@@ -30,21 +30,26 @@ function explainMove(
   myStone: Stone, oppStone: Stone,
 ): string {
   const reasons: string[] = [];
+  const neg = (d: Direction): Direction => ({ x: -d.x, y: -d.y, z: -d.z });
 
   for (const dir of DIRECTIONS) {
-    // Check my lines through this cell
-    const myCount = countLine(board, config, x, y, z, dir, myStone);
-    const myOpen = isOpenEnd(board, config, x, y, z, dir, myStone);
-    const myRevOpen = isOpenEnd(board, config, x, y, z, { x: -dir.x, y: -dir.y, z: -dir.z }, myStone);
-    const myOpenEnds = (myOpen ? 1 : 0) + (myRevOpen ? 1 : 0);
+    // My lines: count consecutive stones in both directions from (x,y,z)
+    const myFwd = countDir(board, config, x, y, z, dir, myStone);
+    const myRev = countDir(board, config, x, y, z, neg(dir), myStone);
+    const myCount = 1 + myFwd + myRev; // +1 for the cell itself
+    const myOpenFwd = isOpenEnd(board, config, x, y, z, dir, myStone);
+    const myOpenRev = isOpenEnd(board, config, x, y, z, neg(dir), myStone);
+    const myOpenEnds = (myOpenFwd ? 1 : 0) + (myOpenRev ? 1 : 0);
 
-    // Check opponent lines through this cell
-    const oppCount = countLine(board, config, x, y, z, dir, oppStone);
-    const oppOpen = isOpenEnd(board, config, x, y, z, dir, oppStone);
-    const oppRevOpen = isOpenEnd(board, config, x, y, z, { x: -dir.x, y: -dir.y, z: -dir.z }, oppStone);
-    const oppOpenEnds = (oppOpen ? 1 : 0) + (oppRevOpen ? 1 : 0);
+    // Opponent lines through this cell
+    const oppFwd = countDir(board, config, x, y, z, dir, oppStone);
+    const oppRev = countDir(board, config, x, y, z, neg(dir), oppStone);
+    const oppCount = 1 + oppFwd + oppRev;
+    const oppOpenFwd = isOpenEnd(board, config, x, y, z, dir, oppStone);
+    const oppOpenRev = isOpenEnd(board, config, x, y, z, neg(dir), oppStone);
+    const oppOpenEnds = (oppOpenFwd ? 1 : 0) + (oppOpenRev ? 1 : 0);
 
-    // Offensive value
+    // Offensive
     if (myCount >= config.winLength) {
       reasons.push(`✅ 完成 ${myCount} 连！直接获胜`);
     } else if (myCount === config.winLength - 1 && myOpenEnds >= 1) {
@@ -53,7 +58,7 @@ function explainMove(
       reasons.push(`📈 建立 ${myCount} 连开放线`);
     }
 
-    // Defensive value
+    // Defensive
     if (oppCount >= config.winLength) {
       reasons.push(`🚨 堵住对手 ${oppCount} 连！阻止对手获胜`);
     } else if (oppCount === config.winLength - 1 && oppOpenEnds >= 1) {
@@ -74,7 +79,11 @@ function explainMove(
   return reasons[0]; // Return the most important reason
 }
 
-function countLine(
+/**
+ * Count consecutive stones of `color` starting from (x,y,z) going in `dir`.
+ * Returns count of stones found (not including the starting cell).
+ */
+function countDir(
   board: number[], config: BoardConfig,
   x: number, y: number, z: number,
   dir: Direction, color: Stone,
@@ -85,21 +94,25 @@ function countLine(
     count++;
     cx += dir.x; cy += dir.y; cz += dir.z;
   }
-  // Check reverse
-  cx = x - dir.x; cy = y - dir.y; cz = z - dir.z;
-  while (inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === color) {
-    count++;
-    cx -= dir.x; cy -= dir.y; cz -= dir.z;
-  }
-  return count + 1; // +1 for the cell itself
+  return count;
 }
 
+/**
+ * Check if the cell at the far end of a line of `color` stones in `dir` from (x,y,z) is empty.
+ * Walks past consecutive stones of `color` starting from (x+dir, y+dir, z+dir).
+ */
 function isOpenEnd(
   board: number[], config: BoardConfig,
   x: number, y: number, z: number,
-  dir: Direction, _color: Stone,
+  dir: Direction, color: Stone,
 ): boolean {
-  const cx = x + dir.x, cy = y + dir.y, cz = z + dir.z;
+  // Start from the cell adjacent to (x,y,z) in `dir`
+  let cx = x + dir.x, cy = y + dir.y, cz = z + dir.z;
+  // Walk past consecutive stones of `color`
+  while (inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === color) {
+    cx += dir.x; cy += dir.y; cz += dir.z;
+  }
+  // Check if the cell at the far end is empty
   return inBounds(cx, cy, cz, config) && board[cz * config.sizeY * config.sizeX + cy * config.sizeX + cx] === Stone.EMPTY;
 }
 
