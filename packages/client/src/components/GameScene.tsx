@@ -232,10 +232,12 @@ export function GameScene({ previewCoords, replayBoard }: {
 
   return (
     <group>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[10, 10, 15]} intensity={0.9} castShadow />
-      <pointLight position={[-10, -10, 10]} intensity={0.4} color="#4a90d9" />
-      <pointLight position={[0, 0, -5]} intensity={0.2} color="#7b61ff" />
+      {/* Three-point lighting setup for dramatic 3D look */}
+      <ambientLight intensity={0.35} />
+      <directionalLight position={[12, 8, 18]} intensity={1.0} castShadow color="#fffaf0" />
+      <directionalLight position={[-8, -6, 10]} intensity={0.3} color="#8090ff" />
+      <pointLight position={[0, 0, 20]} intensity={0.5} color="#4a90d9" distance={50} />
+      <pointLight position={[-12, -12, 5]} intensity={0.3} color="#7b61ff" distance={40} />
 
       {!transparencyEnabled && <BoardGrid sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} />}
       <Stones sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} hoverGrid={hoverGrid} replayBoard={replayBoard} />

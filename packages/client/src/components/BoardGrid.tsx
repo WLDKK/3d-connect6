@@ -21,7 +21,7 @@ interface BoardGridProps {
 export function BoardGrid({ sizeX, sizeY, sizeZ }: BoardGridProps) {
   const lineRef = useRef<THREE.LineSegments>(null);
   const { theme } = useViewState();
-  const gridColor = theme === "dark" ? "#555566" : "#8899aa";
+  const gridColor = theme === "dark" ? "#3a4a5a" : "#a0aab4";
 
   const geometry = useMemo(() => {
     const positions: number[] = [];
