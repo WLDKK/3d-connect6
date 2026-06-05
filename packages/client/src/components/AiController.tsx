@@ -65,6 +65,9 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
     const myGen = genRef.current;
     onThinking?.(true);
 
+    // Delay: local AI gets 600ms for visual pacing, LLM gets 300ms (network delay is enough)
+    const delay = model === "local" ? 600 : 300;
+
     const timer = setTimeout(async () => {
       try {
         // Abort if a newer effect has started
@@ -106,7 +109,7 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
         busyRef.current = false;
         onThinking?.(false);
       }
-    }, 300);
+    }, delay);
 
     return () => {
       clearTimeout(timer);
