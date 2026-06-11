@@ -63,17 +63,20 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     return snapshot.board[idx] !== Stone.EMPTY;
   }, [snapshot.board, sizeX, sizeY]);
 
-  // Compute AI best move as initial cursor position
+  // Compute AI best move as cursor position suggestion
   useEffect(() => {
     if (manualMode) return;
     if (snapshot.winner !== Stone.EMPTY) return;
+
+    const stonesToPlace = snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn;
+    if (stonesToPlace <= 0) return;
 
     const req: AiRequestPayload = {
       board: Array.from(snapshot.board),
       config: snapshot.config,
       aiColor: snapshot.currentPlayer as Player,
       currentPlayer: snapshot.currentPlayer as Player,
-      stonesToPlace: snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn,
+      stonesToPlace,
       model: "local",
     };
 
@@ -86,6 +89,9 @@ export function CoordInput({ onPreview }: CoordInputProps) {
       cursorRef.current = { x: ux, y: uy, z: uz };
       setInput(`${ux},${uy},${uz}`);
       onPreview(toGrid(ux, uy, uz));
+    } else {
+      // AI returned no moves — clear preview
+      onPreview(null);
     }
   }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode]);
 
@@ -136,7 +142,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     placeStone(g.x, g.y, g.z);
     setInput("");
     setManualMode(false);
-    // Don't clear preview here — the useEffect will update it with the new AI suggestion
+    onPreview(null); // Clear preview; useEffect will set new AI suggestion
   }, [snapshot, sizeY, sizeX, toGrid, placeStone, onPreview]);
 
   submitRef.current = handleSubmit;

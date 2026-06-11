@@ -590,7 +590,7 @@ function pickBestMove(
   // If top candidate is overwhelmingly good, take it
   if (topN.length > 0 && topN[0].score > 10000) return topN[0].pos;
 
-  let bestMove = topN[0]?.pos || candidates[0];
+  let bestMove = topN[0]?.pos || scored[0]?.pos || candidates[0];
   let bestEval = -Infinity;
 
   for (const candidate of topN) {
@@ -604,6 +604,17 @@ function pickBestMove(
     if (combined > bestEval) {
       bestEval = combined;
       bestMove = candidate.pos;
+    }
+  }
+
+  // Safety fallback: if somehow no move was picked, take any empty cell
+  if (!bestMove) {
+    for (let z = 0; z < c.sizeZ; z++) {
+      for (let y = 0; y < c.sizeY; y++) {
+        for (let x = 0; x < c.sizeX; x++) {
+          if (getStone(b, x, y, z, c) === Stone.EMPTY) return { x, y, z };
+        }
+      }
     }
   }
 
