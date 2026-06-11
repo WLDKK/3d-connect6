@@ -277,8 +277,12 @@ export class GameRoom extends DurableObject {
   // ─── Move ───
 
   private async handleMove(ws: WebSocket, payload: MovePayload): Promise<void> {
-    if (!payload || typeof payload.x !== "number") {
+    if (!payload || typeof payload.x !== "number" || typeof payload.y !== "number" || typeof payload.z !== "number") {
       ws.send(JSON.stringify({ type: MsgType.ERROR, payload: "Invalid move payload" }));
+      return;
+    }
+    if (isNaN(payload.x) || isNaN(payload.y) || isNaN(payload.z)) {
+      ws.send(JSON.stringify({ type: MsgType.ERROR, payload: "Invalid coordinates" }));
       return;
     }
 

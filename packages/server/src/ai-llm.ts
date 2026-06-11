@@ -385,6 +385,7 @@ export async function callLLMForAnalysis(req: AiRequestPayload): Promise<string 
   const { board, config, aiColor, stonesToPlace } = req;
   const { sizeX: sx, sizeY: sy, sizeZ: sz } = config;
   const colorName = aiColor === Player.BLACK ? "Black (X)" : "White (O)";
+  const aiStone = aiColor as unknown as Stone;
 
   // Build compact board text
   const lines: string[] = [];

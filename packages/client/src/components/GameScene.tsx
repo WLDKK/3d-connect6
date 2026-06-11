@@ -31,10 +31,10 @@ function ddaFindFirstEmpty(
   sizeX: number, sizeY: number, sizeZ: number,
   board: Uint8Array | number[],
 ): { x: number; y: number; z: number } | null {
-  // Board AABB in world space
-  const halfX = (sizeX * CELL_SIZE) / 2;
-  const halfY = (sizeY * CELL_SIZE) / 2;
-  const halfZ = (sizeZ * CELL_SIZE) / 2;
+  // Board AABB in world space (matches gridToWorld centering)
+  const halfX = ((sizeX - 1) * CELL_SIZE) / 2 + CELL_SIZE / 2;
+  const halfY = ((sizeY - 1) * CELL_SIZE) / 2 + CELL_SIZE / 2;
+  const halfZ = ((sizeZ - 1) * CELL_SIZE) / 2 + CELL_SIZE / 2;
   const boxMin = new THREE.Vector3(-halfX, -halfY, -halfZ);
   const boxMax = new THREE.Vector3(halfX, halfY, halfZ);
 

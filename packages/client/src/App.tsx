@@ -148,7 +148,10 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
 
   useEffect(() => {
     setOnStateUpdate((payload: StatePayload) => {
-      if (payload.lastMove) {
+      // Detect reset: round 0 with no lastMove
+      if (payload.round === 0 && !payload.lastMove) {
+        movesRef.current = [];
+      } else if (payload.lastMove) {
         movesRef.current.push(payload.lastMove);
       }
       loadState({

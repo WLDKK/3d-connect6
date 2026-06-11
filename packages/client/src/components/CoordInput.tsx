@@ -63,7 +63,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     return snapshot.board[idx] !== Stone.EMPTY;
   }, [snapshot.board, sizeX, sizeY]);
 
-  // Compute AI best move as cursor position suggestion
+  // Compute AI best move as cursor position suggestion (deferred to avoid blocking UI)
   useEffect(() => {
     if (manualMode) return;
     if (snapshot.winner !== Stone.EMPTY) return;
@@ -71,28 +71,36 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     const stonesToPlace = snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn;
     if (stonesToPlace <= 0) return;
 
-    const req: AiRequestPayload = {
-      board: Array.from(snapshot.board),
-      config: snapshot.config,
-      aiColor: snapshot.currentPlayer as Player,
-      currentPlayer: snapshot.currentPlayer as Player,
-      stonesToPlace,
-      model: "local",
-    };
+    const board = Array.from(snapshot.board);
+    const config = snapshot.config;
+    const currentPlayer = snapshot.currentPlayer;
 
-    const result = computeAiMove(req);
-    if (result.moves.length > 0) {
-      const m = result.moves[0];
-      const ux = sizeX - 1 - m.x;
-      const uy = m.y;
-      const uz = m.z;
-      cursorRef.current = { x: ux, y: uy, z: uz };
-      setInput(`${ux},${uy},${uz}`);
-      onPreview(toGrid(ux, uy, uz));
-    } else {
-      // AI returned no moves — clear preview
-      onPreview(null);
-    }
+    // Defer AI computation to next tick so it doesn't block the render
+    const timer = setTimeout(() => {
+      const req: AiRequestPayload = {
+        board,
+        config,
+        aiColor: currentPlayer as Player,
+        currentPlayer: currentPlayer as Player,
+        stonesToPlace,
+        model: "local",
+      };
+
+      const result = computeAiMove(req);
+      if (result.moves.length > 0) {
+        const m = result.moves[0];
+        const ux = sizeX - 1 - m.x;
+        const uy = m.y;
+        const uz = m.z;
+        cursorRef.current = { x: ux, y: uy, z: uz };
+        setInput(`${ux},${uy},${uz}`);
+        onPreview(toGrid(ux, uy, uz));
+      } else {
+        onPreview(null);
+      }
+    }, 50);
+
+    return () => clearTimeout(timer);
   }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode]);
 
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {

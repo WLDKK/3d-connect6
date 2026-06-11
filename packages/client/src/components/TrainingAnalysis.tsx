@@ -1,14 +1,15 @@
 import { useState, useCallback, useRef } from "react";
 import {
   computeAiMove, scoreCell,
-  Player, Stone,
+  Player, Stone, type Direction,
   type AiRequestPayload, type BoardConfig,
 } from "@connect6/shared";
 import { useGameSnapshot } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
 import { API_BASE } from "../config";
 
-const DIRECTIONS = [
+// Re-export DIRECTIONS from engine (same as shared/engine.ts)
+const DIRECTIONS: readonly Direction[] = [
   { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 },
   { x: 1, y: 1, z: 0 }, { x: 1, y: -1, z: 0 },
   { x: 1, y: 0, z: 1 }, { x: 1, y: 0, z: -1 },
@@ -103,8 +104,6 @@ function explainMove(
   return reasons[0]; // Return the most important reason
 }
 
-
-type Direction = { x: number; y: number; z: number };
 
 interface Analysis {
   bestMove: { x: number; y: number; z: number } | null;
