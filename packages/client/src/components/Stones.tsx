@@ -8,6 +8,8 @@ import { useViewState } from "../hooks/useViewStore";
 import { useComputeOccluded } from "../hooks/useOcclusion";
 
 const SPHERE_RADIUS = CELL_SIZE * 0.3;
+const DROP_HEIGHT = CELL_SIZE * 3; // stones drop from 3 cells above
+const DROP_DURATION = 0.35; // seconds
 
 const sphereGeo = new THREE.SphereGeometry(SPHERE_RADIUS, 24, 16);
 
@@ -21,14 +23,14 @@ const whiteMat = new THREE.MeshStandardMaterial({
   emissive: "#ffffff", emissiveIntensity: 0.1,
 });
 
-// Gold materials for winning stones
+// Gold materials for winning stones (pulsing emissive)
 const blackGoldMat = new THREE.MeshStandardMaterial({
   color: "#ffd700", roughness: 0.2, metalness: 0.9,
-  emissive: "#b8860b", emissiveIntensity: 0.5,
+  emissive: "#ff8c00", emissiveIntensity: 0.6,
 });
 const whiteGoldMat = new THREE.MeshStandardMaterial({
   color: "#fffacd", roughness: 0.15, metalness: 0.8,
-  emissive: "#ffd700", emissiveIntensity: 0.4,
+  emissive: "#ffd700", emissiveIntensity: 0.5,
 });
 
 const dummy = new THREE.Object3D();
@@ -51,25 +53,26 @@ interface StonesProps {
 }
 
 export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesProps) {
-  // Normal stones
   const blackRef = useRef<THREE.InstancedMesh>(null);
   const whiteRef = useRef<THREE.InstancedMesh>(null);
-  // Winning stones (gold)
   const blackGoldRef = useRef<THREE.InstancedMesh>(null);
   const whiteGoldRef = useRef<THREE.InstancedMesh>(null);
 
   const snapshot = useGameSnapshot();
   const liveWinningLine = useWinningLine();
-  const winningLine = replayBoard ? [] : liveWinningLine; // suppress gold during replay
+  const winningLine = replayBoard ? [] : liveWinningLine;
   const { transparencyEnabled } = useViewState();
   const computeOccluded = useComputeOccluded();
 
   const maxStones = sizeX * sizeY * sizeZ;
-  const maxWin = 6; // max winning line length
+  const maxWin = 6;
 
-  // Build winning line lookup
   const winSet = new Set<string>();
   for (const p of winningLine) winSet.add(`${p.x},${p.y},${p.z}`);
+
+  // Track drop animations: cell key → start time
+  const dropMap = useRef(new Map<string, number>());
+  const prevBoardRef = useRef<number[]>([]);
 
   useLayoutEffect(() => {
     hideAll(blackRef.current, maxStones);
@@ -89,17 +92,37 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
   }
   const occluded = occludedRef.current;
 
-  useFrame(() => {
+  useFrame(({ clock }) => {
     const bRef = blackRef.current;
     const wRef = whiteRef.current;
     const bgRef = blackGoldRef.current;
     const wgRef = whiteGoldRef.current;
     if (!bRef || !wRef || !bgRef || !wgRef) return;
 
-    let bN = 0, wN = 0, bgN = 0, wgN = 0;
     const config = snapshot.config;
     const board = replayBoard ?? snapshot.board;
     const sx = config.sizeX, sy = config.sizeY, sz = config.sizeZ;
+
+    // Detect newly placed stones for drop animation
+    const prevBoard = prevBoardRef.current;
+    if (!replayBoard) {
+      for (let i = 0; i < board.length; i++) {
+        if (board[i] !== Stone.EMPTY && (i >= prevBoard.length || prevBoard[i] === Stone.EMPTY)) {
+          const x = i % sx;
+          const y = Math.floor(i / sx) % sy;
+          const z = Math.floor(i / (sx * sy));
+          const key = `${x},${y},${z}`;
+          if (!dropMap.current.has(key)) {
+            dropMap.current.set(key, clock.elapsedTime);
+          }
+        }
+      }
+    }
+    prevBoardRef.current = [...board];
+
+    const now = clock.elapsedTime;
+
+    let bN = 0, wN = 0, bgN = 0, wgN = 0;
 
     for (let z = 0; z < sz; z++) {
       for (let y = 0; y < sy; y++) {
@@ -109,7 +132,27 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
           if (occluded.has(`${x},${y},${z}`)) continue;
 
           const [wx, wy, wz] = gridToWorld(x, y, z, sx, sy, sz);
-          dummy.position.set(wx, wy, wz);
+          const key = `${x},${y},${z}`;
+
+          // Drop animation
+          const dropStart = dropMap.current.get(key);
+          let dropOffset = 0;
+          let scale = 1;
+          if (dropStart !== undefined && !replayBoard) {
+            const elapsed = now - dropStart;
+            if (elapsed < DROP_DURATION) {
+              const t = elapsed / DROP_DURATION;
+              // Ease-out bounce: fast drop, small bounce at end
+              const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
+              dropOffset = DROP_HEIGHT * (1 - ease);
+              scale = 0.5 + 0.5 * ease; // grow from 50% to 100%
+            } else {
+              dropMap.current.delete(key);
+            }
+          }
+
+          dummy.position.set(wx, wy + dropOffset, wz);
+          dummy.scale.setScalar(scale);
           dummy.updateMatrix();
 
           const isWin = winSet.has(`${x},${y},${z}`);
@@ -133,6 +176,7 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
 
     // Hide unused instances
     dummy.position.set(0, HIDDEN_Y, 0);
+    dummy.scale.setScalar(1);
     dummy.updateMatrix();
     for (let i = bN; i < maxStones; i++) bRef.setMatrixAt(i, dummy.matrix);
     for (let i = wN; i < maxStones; i++) wRef.setMatrixAt(i, dummy.matrix);
@@ -143,6 +187,13 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
     wRef.instanceMatrix.needsUpdate = true;
     bgRef.instanceMatrix.needsUpdate = true;
     wgRef.instanceMatrix.needsUpdate = true;
+
+    // Pulse gold materials emissive intensity
+    if (bgN > 0 || wgN > 0) {
+      const pulse = 0.4 + Math.sin(now * 3) * 0.2;
+      blackGoldMat.emissiveIntensity = pulse + 0.2;
+      whiteGoldMat.emissiveIntensity = pulse + 0.1;
+    }
   });
 
   return (
