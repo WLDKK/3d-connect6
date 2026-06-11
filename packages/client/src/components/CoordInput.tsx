@@ -87,7 +87,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
       setInput(`${ux},${uy},${uz}`);
       onPreview(toGrid(ux, uy, uz));
     }
-  }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, manualMode]);
+  }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode]);
 
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {
     const g = toGrid(ux, uy, uz);
@@ -136,7 +136,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     placeStone(g.x, g.y, g.z);
     setInput("");
     setManualMode(false);
-    onPreview(null);
+    // Don't clear preview here — the useEffect will update it with the new AI suggestion
   }, [snapshot, sizeY, sizeX, toGrid, placeStone, onPreview]);
 
   submitRef.current = handleSubmit;
