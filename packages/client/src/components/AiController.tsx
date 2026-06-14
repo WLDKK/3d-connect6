@@ -1,33 +1,21 @@
 import { useEffect, useRef } from "react";
-import { computeAiMoveWithMemory, Player, Stone, type AiRequestPayload, type AiResponsePayload, type AiModelId } from "@connect6/shared";
+import { Player, Stone, type AiRequestPayload, type AiResponsePayload, type AiModelId } from "@connect6/shared";
 import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
-import { useAiMemory } from "../hooks/useAiMemory";
-
-interface AiControllerProps {
-  aiColor: Player;
-  model: AiModelId;
-  /** Callback to report which AI was used for the last move */
-  onAiSource?: (source: "llm" | "local") => void;
-  /** Callback to report thinking state */
-  onThinking?: (thinking: boolean) => void;
-}
-
+import { useAiWorker } from "../hooks/useAiWorker";
 import { API_BASE } from "../config";
 
-const AI_API_TIMEOUT = 120000; // 2 minutes
+const AI_API_TIMEOUT = 120_000; // 2 minutes
 
 async function callServerAi(req: AiRequestPayload): Promise<AiResponsePayload | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), AI_API_TIMEOUT);
-
     const res = await fetch(`${API_BASE}/api/ai/move`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
       signal: controller.signal,
     });
-
     clearTimeout(timer);
     if (!res.ok) return null;
     return await res.json();
@@ -36,12 +24,19 @@ async function callServerAi(req: AiRequestPayload): Promise<AiResponsePayload | 
   }
 }
 
+interface AiControllerProps {
+  aiColor: Player;
+  model: AiModelId;
+  onAiSource?: (source: "llm" | "local") => void;
+  onThinking?: (thinking: boolean) => void;
+}
+
 export function AiController({ aiColor, model, onAiSource, onThinking }: AiControllerProps) {
   const snapshot = useGameSnapshot();
   const { placeStone } = useGameActions();
-  const memory = useAiMemory();
+  const { compute: computeAiWorker } = useAiWorker();
   const busyRef = useRef(false);
-  const genRef = useRef(0); // generation counter to prevent stale callbacks
+  const genRef = useRef(0);
 
   useEffect(() => {
     if (snapshot.winner !== Stone.EMPTY) return;
@@ -65,57 +60,52 @@ export function AiController({ aiColor, model, onAiSource, onThinking }: AiContr
     const myGen = genRef.current;
     onThinking?.(true);
 
-    // Delay: local AI gets 600ms for visual pacing, LLM gets 300ms (network delay is enough)
-    const delay = model === "local" ? 600 : 300;
-
-    const timer = setTimeout(async () => {
-      try {
-        // Abort if a newer effect has started
-        if (genRef.current !== myGen) return;
-        let moves: { x: number; y: number; z: number }[] = [];
-        let usedLlm = false;
-
-        if (model === "local") {
-          // Local AI with memory enhancement
-          const result = computeAiMoveWithMemory(req, memory);
-          moves = result.moves;
-        } else {
-          const serverResult = await callServerAi(req);
-          moves = serverResult?.moves ?? [];
-          usedLlm = moves.length > 0;
-
-          if (moves.length === 0) {
-            const localResult = computeAiMoveWithMemory(req, memory);
-            moves = localResult.moves;
-          }
-        }
-
-        // Abort if a newer effect has started
-        if (genRef.current !== myGen) return;
-
-        onAiSource?.(usedLlm ? "llm" : "local");
-
-        for (const move of moves) {
-          placeStone(move.x, move.y, move.z);
-        }
-      } catch {
-        if (genRef.current !== myGen) return;
-        onAiSource?.("local");
-        const localResult = computeAiMoveWithMemory(req, memory);
-        for (const move of localResult.moves) {
-          placeStone(move.x, move.y, move.z);
-        }
-      } finally {
-        busyRef.current = false;
-        onThinking?.(false);
+    const placeMoves = (moves: { x: number; y: number; z: number }[]) => {
+      if (genRef.current !== myGen) return;
+      for (const move of moves) {
+        placeStone(move.x, move.y, move.z);
       }
-    }, delay);
-
-    return () => {
-      clearTimeout(timer);
       busyRef.current = false;
       onThinking?.(false);
     };
+
+    const onError = () => {
+      if (genRef.current !== myGen) return;
+      busyRef.current = false;
+      onThinking?.(false);
+    };
+
+    if (model === "local") {
+      // Local AI via Web Worker — no main thread blocking
+      computeAiWorker(req).then((result) => {
+        onAiSource?.("local");
+        placeMoves(result.moves);
+      }).catch(onError);
+    } else {
+      // LLM AI via server — async fetch
+      callServerAi(req).then((serverResult) => {
+        if (genRef.current !== myGen) return;
+        const moves = serverResult?.moves ?? [];
+        const usedLlm = moves.length > 0;
+        onAiSource?.(usedLlm ? "llm" : "local");
+
+        if (moves.length > 0) {
+          placeMoves(moves);
+        } else {
+          // LLM failed — fallback to local via Worker
+          computeAiWorker(req).then((localResult) => {
+            onAiSource?.("local");
+            placeMoves(localResult.moves);
+          }).catch(onError);
+        }
+      }).catch(() => {
+        // Network error — fallback to local
+        computeAiWorker(req).then((localResult) => {
+          onAiSource?.("local");
+          placeMoves(localResult.moves);
+        }).catch(onError);
+      });
+    }
   }, [snapshot, aiColor, model, placeStone, onAiSource, onThinking]);
 
   return null;
