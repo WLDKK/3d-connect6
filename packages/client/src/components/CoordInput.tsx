@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { computeAiMove, Player, Stone, type AiRequestPayload } from "@connect6/shared";
+import { Player, Stone, type AiRequestPayload } from "@connect6/shared";
 import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
+import { useAiWorker } from "../hooks/useAiWorker";
 
 /**
  * Camera-relative directions for keyboard navigation.
@@ -46,6 +47,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
   const snapshot = useGameSnapshot();
   const { placeStone } = useGameActions();
   const { sizeX, sizeY, sizeZ } = snapshot.config;
+  const { compute: computeAi } = useAiWorker();
 
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
@@ -64,8 +66,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     return snapshot.board[idx] !== Stone.EMPTY;
   }, [snapshot.board, sizeX, sizeY]);
 
-  // Compute AI best move as cursor position suggestion
-  // Uses requestIdleCallback to avoid blocking UI
+  // Compute AI best move via Web Worker — main thread stays free
   useEffect(() => {
     if (manualMode) return;
     if (snapshot.winner !== Stone.EMPTY) return;
@@ -73,36 +74,20 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     const stonesToPlace = snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn;
     if (stonesToPlace <= 0) return;
 
-    const board = Array.from(snapshot.board);
-    const config = snapshot.config;
-    const currentPlayer = snapshot.currentPlayer;
-
     let cancelled = false;
     setAiComputing(true);
 
-    // Use requestIdleCallback to defer heavy computation until browser is idle
-    const scheduleIdle = (fn: () => void) => {
-      if (typeof requestIdleCallback !== "undefined") {
-        return requestIdleCallback(fn, { timeout: 2000 });
-      }
-      return setTimeout(fn, 500) as unknown as ReturnType<typeof requestIdleCallback>;
+    const req: AiRequestPayload = {
+      board: Array.from(snapshot.board),
+      config: snapshot.config,
+      aiColor: snapshot.currentPlayer as Player,
+      currentPlayer: snapshot.currentPlayer as Player,
+      stonesToPlace,
+      model: "local",
     };
 
-    const idleHandle = scheduleIdle(() => {
+    computeAi(req).then((result) => {
       if (cancelled) return;
-
-      const req: AiRequestPayload = {
-        board,
-        config,
-        aiColor: currentPlayer as Player,
-        currentPlayer: currentPlayer as Player,
-        stonesToPlace,
-        model: "local",
-      };
-
-      const result = computeAiMove(req);
-      if (cancelled) return;
-
       if (result.moves.length > 0) {
         const m = result.moves[0];
         const ux = sizeX - 1 - m.x;
@@ -112,15 +97,10 @@ export function CoordInput({ onPreview }: CoordInputProps) {
         setInput(`${ux},${uy},${uz}`);
         onPreview(toGrid(ux, uy, uz));
       }
-      if (!cancelled) setAiComputing(false);
+      setAiComputing(false);
     });
 
-    return () => {
-      cancelled = true;
-      if (typeof cancelIdleCallback !== "undefined" && idleHandle) {
-        cancelIdleCallback(idleHandle as unknown as number);
-      }
-    };
+    return () => { cancelled = true; setAiComputing(false); };
   }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode, sizeX]);
 
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {
