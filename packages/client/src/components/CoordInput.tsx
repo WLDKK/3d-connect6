@@ -98,10 +98,10 @@ export function CoordInput({ onPreview }: CoordInputProps) {
       } else {
         onPreview(null);
       }
-    }, 50);
+    }, 100);
 
     return () => clearTimeout(timer);
-  }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode]);
+  }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode, sizeX]);
 
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {
     const g = toGrid(ux, uy, uz);
@@ -147,10 +147,12 @@ export function CoordInput({ onPreview }: CoordInputProps) {
       return;
     }
 
-    placeStone(g.x, g.y, g.z);
-    setInput("");
+    // Reset manual mode BEFORE placing stone so the AI suggestion effect
+    // sees manualMode=false when it fires after the snapshot update
     setManualMode(false);
-    onPreview(null); // Clear preview; useEffect will set new AI suggestion
+    setInput("");
+    onPreview(null);
+    placeStone(g.x, g.y, g.z);
   }, [snapshot, sizeY, sizeX, toGrid, placeStone, onPreview]);
 
   submitRef.current = handleSubmit;
