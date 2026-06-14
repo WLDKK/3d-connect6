@@ -137,7 +137,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
               className="absolute top-6 right-6 w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] flex items-center justify-center transition-all duration-300 text-sm text-slate-400 hover:text-slate-200"
               title="切换主题"
             >
-              ☀
+              {useViewState().theme === "dark" ? "☀" : "🌙"}
             </button>
             <h1 className="text-4xl font-black tracking-tight mb-2 bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
               3D 六子棋
