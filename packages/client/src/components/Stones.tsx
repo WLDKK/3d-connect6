@@ -87,9 +87,6 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
   }
   const occluded = occludedRef.current;
 
-  // Track board changes to skip redundant updates
-  const prevBoardKey = useRef("");
-  const updateCounter = useRef(0);
 
   useFrame(({ clock }) => {
     const bRef = blackRef.current;
@@ -102,13 +99,6 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
     const board = replayBoard ?? snapshot.board;
     const sx = config.sizeX, sy = config.sizeY, sz = config.sizeZ;
 
-    // Skip update if board hasn't changed (every 6th frame for gold pulse)
-    const boardKey = `${board.length}:${board[0]}:${board[board.length - 1]}:${winningLine.length}:${occluded.size}`;
-    const goldNeedsUpdate = winningLine.length > 0;
-    updateCounter.current++;
-    if (boardKey === prevBoardKey.current && !goldNeedsUpdate) return;
-    if (boardKey === prevBoardKey.current && goldNeedsUpdate && updateCounter.current % 6 !== 0) return;
-    prevBoardKey.current = boardKey;
     const now = clock.elapsedTime;
 
     let bN = 0, wN = 0, bgN = 0, wgN = 0;
@@ -159,7 +149,7 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
     wgRef.instanceMatrix.needsUpdate = true;
 
     // Pulse gold materials emissive intensity
-    if (goldNeedsUpdate && (bgN > 0 || wgN > 0)) {
+    if (winningLine.length > 0 && (bgN > 0 || wgN > 0)) {
       const pulse = 0.4 + Math.sin(now * 3) * 0.2;
       blackGoldMat.emissiveIntensity = pulse + 0.2;
       whiteGoldMat.emissiveIntensity = pulse + 0.1;
