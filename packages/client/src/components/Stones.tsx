@@ -87,8 +87,9 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
   }
   const occluded = occludedRef.current;
 
-  // Track board changes to only update instances when needed
+  // Track board changes to skip redundant updates
   const prevBoardKey = useRef("");
+  const updateCounter = useRef(0);
 
   useFrame(({ clock }) => {
     const bRef = blackRef.current;
@@ -101,10 +102,14 @@ export function Stones({ sizeX, sizeY, sizeZ, hoverGrid, replayBoard }: StonesPr
     const board = replayBoard ?? snapshot.board;
     const sx = config.sizeX, sy = config.sizeY, sz = config.sizeZ;
 
-    // Build a quick hash to skip redundant updates
+    // Skip update if board hasn't changed (every 6th frame for gold pulse)
     const boardKey = `${board.length}:${board[0]}:${board[board.length - 1]}:${winningLine.length}:${occluded.size}`;
-    const now = clock.elapsedTime;
     const goldNeedsUpdate = winningLine.length > 0;
+    updateCounter.current++;
+    if (boardKey === prevBoardKey.current && !goldNeedsUpdate) return;
+    if (boardKey === prevBoardKey.current && goldNeedsUpdate && updateCounter.current % 6 !== 0) return;
+    prevBoardKey.current = boardKey;
+    const now = clock.elapsedTime;
 
     let bN = 0, wN = 0, bgN = 0, wgN = 0;
 

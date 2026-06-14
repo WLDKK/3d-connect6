@@ -207,7 +207,7 @@ function countThreats(b: number[], c: BoardConfig, color: Stone, oppColor: Stone
 function getCandidates(b: number[], c: BoardConfig): Vec3[] {
   const candidates: Vec3[] = [];
   const seen = new Set<number>();
-  const RADIUS = 4;
+  const RADIUS = 2;
 
   for (let z = 0; z < c.sizeZ; z++) {
     for (let y = 0; y < c.sizeY; y++) {
@@ -312,8 +312,8 @@ function minimax(
   });
   scored.sort((a, b_) => b_.score - a.score);
 
-  // Search more candidates at deeper depths for better play
-  const searchLimit = depth >= 2 ? 10 : 15;
+  // Search top candidates only for performance
+  const searchLimit = depth >= 2 ? 6 : 10;
   const topMoves = scored.slice(0, Math.min(searchLimit, scored.length));
 
   if (maximizing) {
@@ -585,7 +585,7 @@ function pickBestMove(
   }
 
   // ── Phase 5: Minimax on top candidates ──
-  const topN = scored.slice(0, Math.min(12, scored.length));
+  const topN = scored.slice(0, Math.min(8, scored.length));
 
   // If top candidate is overwhelmingly good, take it
   if (topN.length > 0 && topN[0].score > 10000) return topN[0].pos;
