@@ -50,6 +50,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [manualMode, setManualMode] = useState(false);
+  const [aiComputing, setAiComputing] = useState(false);
   const cursorRef = useRef({ x: 0, y: 0, z: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<() => void>(() => {});
@@ -63,7 +64,8 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     return snapshot.board[idx] !== Stone.EMPTY;
   }, [snapshot.board, sizeX, sizeY]);
 
-  // Compute AI best move as cursor position suggestion (deferred to avoid blocking UI)
+  // Compute AI best move as cursor position suggestion
+  // Uses requestIdleCallback to avoid blocking UI
   useEffect(() => {
     if (manualMode) return;
     if (snapshot.winner !== Stone.EMPTY) return;
@@ -75,8 +77,20 @@ export function CoordInput({ onPreview }: CoordInputProps) {
     const config = snapshot.config;
     const currentPlayer = snapshot.currentPlayer;
 
-    // Defer AI computation to next tick so it doesn't block the render
-    const timer = setTimeout(() => {
+    let cancelled = false;
+    setAiComputing(true);
+
+    // Use requestIdleCallback to defer heavy computation until browser is idle
+    const scheduleIdle = (fn: () => void) => {
+      if (typeof requestIdleCallback !== "undefined") {
+        return requestIdleCallback(fn, { timeout: 2000 });
+      }
+      return setTimeout(fn, 500) as unknown as ReturnType<typeof requestIdleCallback>;
+    };
+
+    const idleHandle = scheduleIdle(() => {
+      if (cancelled) return;
+
       const req: AiRequestPayload = {
         board,
         config,
@@ -87,6 +101,8 @@ export function CoordInput({ onPreview }: CoordInputProps) {
       };
 
       const result = computeAiMove(req);
+      if (cancelled) return;
+
       if (result.moves.length > 0) {
         const m = result.moves[0];
         const ux = sizeX - 1 - m.x;
@@ -95,12 +111,16 @@ export function CoordInput({ onPreview }: CoordInputProps) {
         cursorRef.current = { x: ux, y: uy, z: uz };
         setInput(`${ux},${uy},${uz}`);
         onPreview(toGrid(ux, uy, uz));
-      } else {
-        onPreview(null);
       }
-    }, 100);
+      if (!cancelled) setAiComputing(false);
+    });
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      if (typeof cancelIdleCallback !== "undefined" && idleHandle) {
+        cancelIdleCallback(idleHandle as unknown as number);
+      }
+    };
   }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode, sizeX]);
 
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {
@@ -258,6 +278,7 @@ export function CoordInput({ onPreview }: CoordInputProps) {
           落子
         </button>
         {error && <span className="text-red-400 ml-1">{error}</span>}
+        {aiComputing && !manualMode && <span className="text-yellow-400/60 ml-1">思考中...</span>}
         <span className="text-cyber-accent/30 ml-2 hidden md:inline">
           ←→左右 ↑↓前后 PgUp/PgDn上下 Enter确认
         </span>
