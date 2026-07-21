@@ -64,6 +64,7 @@ export enum MsgType {
   TIMER = "timer",
   RESET_REQUEST = "reset_request",
   RESET_CONFIRM = "reset_confirm",
+  RESET_REJECT = "reset_reject",
   RESET_ACK = "reset_ack",
   READY = "ready",
   GAME_START = "game_start",
@@ -112,22 +113,15 @@ export interface ResetRequestPayload {
 export interface ResetAckPayload {
   /** true = reset executed, false = cancelled */
   success: boolean;
+  reason?: "rejected" | "timeout";
 }
 
 // ─── AI Interface Contract ───
 
-/** Available AI model identifiers */
-export type AiModelId =
-  | "local"          // Local Dummy AI (greedy defense, no network)
-  | "qwen3.6-plus"   // Qwen 3.6 Plus (OpenAI protocol)
-  | "qwen3.7-max"    // Qwen 3.7 Max (Anthropic protocol)
-  | "deepseek-v4-flash" // DeepSeek V4 Flash (Anthropic protocol)
-  | "glm-5.1";       // GLM 5.1 (Anthropic protocol)
-
 /** Human player color choice */
 export type ColorChoice = "black" | "white" | "random";
 
-/** Request payload sent to AI inference endpoint */
+/** Request payload sent to the local AI Worker */
 export interface AiRequestPayload {
   /** Flat tensor array: board[z*sizeY*sizeX + y*sizeX + x] */
   board: number[];
@@ -138,11 +132,9 @@ export interface AiRequestPayload {
   currentPlayer: Player;
   /** Number of stones the current player must place this turn */
   stonesToPlace: number;
-  /** Which AI model to use (default: "local") */
-  model?: AiModelId;
 }
 
-/** Response payload returned by AI */
+/** Response payload returned by the local AI Worker */
 export interface AiResponsePayload {
   /** Optimal moves the AI wants to make (1 or 2 coords) */
   moves: Vec3[];

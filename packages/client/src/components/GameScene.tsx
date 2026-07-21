@@ -1,7 +1,6 @@
-import { useCallback, useRef, useState } from "react";
-import { useThree } from "@react-three/fiber";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useThree, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
-import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 import { BoardGrid, CELL_SIZE, gridToWorld, worldToGrid } from "./BoardGrid";
 import { Stones } from "./Stones";
 import { HoverIndicator } from "./HoverIndicator";
@@ -9,17 +8,9 @@ import { AxisLabels } from "./AxisLabels";
 import { PreviewStone } from "./PreviewStone";
 import { useGameSnapshot } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
-import { Player, Stone } from "@connect6/shared";
+import { Player, Stone, type Vec3 } from "@connect6/shared";
 
-// Patch THREE prototypes for BVH
-THREE.Mesh.prototype.raycast = acceleratedRaycast;
-(THREE.BufferGeometry.prototype as any).computeBoundsTree = function (opts?: any) {
-  (this as any).boundsTree = new MeshBVH(this, opts);
-  return (this as any).boundsTree;
-};
-(THREE.BufferGeometry.prototype as any).disposeBoundsTree = function () {
-  (this as any).boundsTree = null;
-};
+const DDA_ENTRY = new THREE.Vector3();
 
 /**
  * 3D DDA (Digital Differential Analyzer) grid traversal.
@@ -30,31 +21,16 @@ function ddaFindFirstEmpty(
   ray: THREE.Ray,
   sizeX: number, sizeY: number, sizeZ: number,
   board: Uint8Array | number[],
+  boardBox: THREE.Box3,
 ): { x: number; y: number; z: number } | null {
-  // Board AABB in world space (matches gridToWorld centering)
-  const halfX = ((sizeX - 1) * CELL_SIZE) / 2 + CELL_SIZE / 2;
-  const halfY = ((sizeY - 1) * CELL_SIZE) / 2 + CELL_SIZE / 2;
-  const halfZ = ((sizeZ - 1) * CELL_SIZE) / 2 + CELL_SIZE / 2;
-  const boxMin = new THREE.Vector3(-halfX, -halfY, -halfZ);
-  const boxMax = new THREE.Vector3(halfX, halfY, halfZ);
-
-  // Find entry point
-  const entry = new THREE.Vector3();
-  const entryRay = new THREE.Ray(ray.origin.clone(), ray.direction.clone());
-  const hitEntry = entryRay.intersectBox(new THREE.Box3(boxMin, boxMax), entry);
+  const hitEntry = boardBox.containsPoint(ray.origin)
+    ? DDA_ENTRY.copy(ray.origin)
+    : ray.intersectBox(boardBox, DDA_ENTRY);
   if (!hitEntry) return null;
-
-  // Find exit point
-  const exit = new THREE.Vector3();
-  const exitRay = new THREE.Ray(
-    ray.origin.clone().addScaledVector(ray.direction, 200),
-    ray.direction.clone().negate(),
-  );
-  const hitExit = exitRay.intersectBox(new THREE.Box3(boxMin, boxMax), exit);
-  if (!hitExit) return null;
+  DDA_ENTRY.addScaledVector(ray.direction, 1e-7);
 
   // Convert entry point to grid coords
-  const g = worldToGrid(entry.x, entry.y, entry.z, sizeX, sizeY, sizeZ);
+  const g = worldToGrid(DDA_ENTRY.x, DDA_ENTRY.y, DDA_ENTRY.z, sizeX, sizeY, sizeZ);
   if (!g) return null;
 
   // DDA setup
@@ -72,19 +48,19 @@ function ddaFindFirstEmpty(
 
   // Distance to next cell boundary
   let tMaxX = stepX > 0
-    ? (cellWorld[0] + CELL_SIZE / 2 - entry.x) / dir.x
+    ? (cellWorld[0] + CELL_SIZE / 2 - DDA_ENTRY.x) / dir.x
     : stepX < 0
-      ? (cellWorld[0] - CELL_SIZE / 2 - entry.x) / dir.x
+      ? (cellWorld[0] - CELL_SIZE / 2 - DDA_ENTRY.x) / dir.x
       : Infinity;
   let tMaxY = stepY > 0
-    ? (cellWorld[1] + CELL_SIZE / 2 - entry.y) / dir.y
+    ? (cellWorld[1] + CELL_SIZE / 2 - DDA_ENTRY.y) / dir.y
     : stepY < 0
-      ? (cellWorld[1] - CELL_SIZE / 2 - entry.y) / dir.y
+      ? (cellWorld[1] - CELL_SIZE / 2 - DDA_ENTRY.y) / dir.y
       : Infinity;
   let tMaxZ = stepZ > 0
-    ? (cellWorld[2] + CELL_SIZE / 2 - entry.z) / dir.z
+    ? (cellWorld[2] + CELL_SIZE / 2 - DDA_ENTRY.z) / dir.z
     : stepZ < 0
-      ? (cellWorld[2] - CELL_SIZE / 2 - entry.z) / dir.z
+      ? (cellWorld[2] - CELL_SIZE / 2 - DDA_ENTRY.z) / dir.z
       : Infinity;
 
   // Clamp negative tMax (ray origin inside cell)
@@ -92,43 +68,20 @@ function ddaFindFirstEmpty(
   if (tMaxY < 0) tMaxY = 0;
   if (tMaxZ < 0) tMaxZ = 0;
 
-  // Total ray length through the board
-  const totalT = entry.distanceTo(exit);
-
   let cx = g.x, cy = g.y, cz = g.z;
 
-  // Check up to 300 cells (more than enough for 10x10x10 diagonal)
-  for (let i = 0; i < 300; i++) {
-    // Bounds check
-    if (cx >= 0 && cx < sizeX && cy >= 0 && cy < sizeY && cz >= 0 && cz < sizeZ) {
-      const idx = cz * sizeY * sizeX + cy * sizeX + cx;
-      if (board[idx] === Stone.EMPTY) {
-        return { x: cx, y: cy, z: cz };
-      }
+  for (let i = 0; i < sizeX + sizeY + sizeZ + 3; i++) {
+    if (cx < 0 || cx >= sizeX || cy < 0 || cy >= sizeY || cz < 0 || cz >= sizeZ) break;
+    const idx = cz * sizeY * sizeX + cy * sizeX + cx;
+    if (board[idx] === Stone.EMPTY) {
+      return { x: cx, y: cy, z: cz };
     }
 
-    // Step to next cell boundary
-    if (tMaxX < tMaxY) {
-      if (tMaxX < tMaxZ) {
-        if (tMaxX > totalT) break;
-        cx += stepX;
-        tMaxX += tDeltaX;
-      } else {
-        if (tMaxZ > totalT) break;
-        cz += stepZ;
-        tMaxZ += tDeltaZ;
-      }
-    } else {
-      if (tMaxY < tMaxZ) {
-        if (tMaxY > totalT) break;
-        cy += stepY;
-        tMaxY += tDeltaY;
-      } else {
-        if (tMaxZ > totalT) break;
-        cz += stepZ;
-        tMaxZ += tDeltaZ;
-      }
-    }
+    // Crossing an edge/corner advances every tied axis, avoiding phantom cells.
+    const nextT = Math.min(tMaxX, tMaxY, tMaxZ);
+    if (Math.abs(tMaxX - nextT) < 1e-9) { cx += stepX; tMaxX += tDeltaX; }
+    if (Math.abs(tMaxY - nextT) < 1e-9) { cy += stepY; tMaxY += tDeltaY; }
+    if (Math.abs(tMaxZ - nextT) < 1e-9) { cz += stepZ; tMaxZ += tDeltaZ; }
   }
 
   return null;
@@ -139,53 +92,69 @@ function ddaFindFirstEmpty(
  * On pointer events, uses DDA to find the nearest empty cell.
  */
 function BoardHitTarget({
-  sizeX, sizeY, sizeZ, snapshot, onHover,
+  sizeX, sizeY, sizeZ, snapshot, disabled, onHover, onPlace,
 }: {
   sizeX: number; sizeY: number; sizeZ: number;
   snapshot: { board: number[]; config: { sizeX: number; sizeY: number; sizeZ: number } };
-  onHover: (pos: [number, number, number] | null, grid: { x: number; y: number; z: number } | null) => void;
+  onHover: (grid: Vec3 | null) => void;
+  disabled: boolean;
+  onPlace: (grid: Vec3) => void;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const camera = useThree((s) => s.camera);
-  const lastGridRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const gl = useThree((s) => s.gl);
+  const lastGridRef = useRef<Vec3 | null>(null);
 
-  const geometry = useCallback(() => {
-    const geo = new THREE.BoxGeometry(
-      sizeX * CELL_SIZE + CELL_SIZE,
-      sizeY * CELL_SIZE + CELL_SIZE,
-      sizeZ * CELL_SIZE + CELL_SIZE,
-    );
-    geo.computeBoundsTree();
-    return geo;
-  }, [sizeX, sizeY, sizeZ])();
-
-  const makeRay = useCallback(
-    (worldPoint: THREE.Vector3) => {
-      const origin = camera.position.clone();
-      const dir = worldPoint.clone().sub(origin).normalize();
-      return new THREE.Ray(origin, dir);
-    },
-    [camera],
+  const geometry = useMemo(
+    () => new THREE.BoxGeometry(
+      sizeX * CELL_SIZE,
+      sizeY * CELL_SIZE,
+      sizeZ * CELL_SIZE,
+    ),
+    [sizeX, sizeY, sizeZ],
   );
+  const boardBox = useMemo(() => new THREE.Box3(
+    new THREE.Vector3(-sizeX * CELL_SIZE / 2, -sizeY * CELL_SIZE / 2, -sizeZ * CELL_SIZE / 2),
+    new THREE.Vector3(sizeX * CELL_SIZE / 2, sizeY * CELL_SIZE / 2, sizeZ * CELL_SIZE / 2),
+  ), [sizeX, sizeY, sizeZ]);
+
+  useEffect(() => () => {
+    gl.domElement.style.cursor = "";
+  }, [gl]);
 
   const handlePointerMove = useCallback(
-    (e: { point: THREE.Vector3 }) => {
-      const ray = makeRay(e.point);
-      const grid = ddaFindFirstEmpty(ray, sizeX, sizeY, sizeZ, snapshot.board);
+    (event: ThreeEvent<PointerEvent>) => {
+      const grid = ddaFindFirstEmpty(event.ray, sizeX, sizeY, sizeZ, snapshot.board, boardBox);
+      const previous = lastGridRef.current;
+      if (grid && previous && grid.x === previous.x && grid.y === previous.y && grid.z === previous.z) {
+        gl.domElement.style.cursor = disabled ? "not-allowed" : "crosshair";
+        return;
+      }
+      if (!grid && !previous) return;
       lastGridRef.current = grid;
       if (grid) {
-        onHover(gridToWorld(grid.x, grid.y, grid.z, sizeX, sizeY, sizeZ), grid);
+        gl.domElement.style.cursor = disabled ? "not-allowed" : "crosshair";
+        onHover(grid);
       } else {
-        onHover(null, null);
+        gl.domElement.style.cursor = "grab";
+        onHover(null);
       }
     },
-    [makeRay, sizeX, sizeY, sizeZ, snapshot.board, onHover],
+    [boardBox, disabled, gl, sizeX, sizeY, sizeZ, snapshot.board, onHover],
   );
 
   const handlePointerOut = useCallback(() => {
+    if (!lastGridRef.current) return;
     lastGridRef.current = null;
-    onHover(null, null);
-  }, [onHover]);
+    gl.domElement.style.cursor = "grab";
+    onHover(null);
+  }, [gl, onHover]);
+
+  const handleClick = useCallback((event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation();
+    if (disabled || event.delta > 4) return;
+    const grid = ddaFindFirstEmpty(event.ray, sizeX, sizeY, sizeZ, snapshot.board, boardBox);
+    if (grid) onPlace(grid);
+  }, [boardBox, disabled, onPlace, sizeX, sizeY, sizeZ, snapshot.board]);
 
   return (
     <mesh
@@ -193,6 +162,7 @@ function BoardHitTarget({
       geometry={geometry}
       onPointerMove={handlePointerMove}
       onPointerOut={handlePointerOut}
+      onClick={handleClick}
     >
       <meshBasicMaterial visible={false} />
     </mesh>
@@ -202,24 +172,22 @@ function BoardHitTarget({
 /**
  * Main game scene — right-hand coordinate system, Z up.
  */
-export function GameScene({ previewCoords, replayBoard }: {
+export function GameScene({ previewCoords, replayBoard, interactionDisabled = false, onPlace }: {
   previewCoords: { x: number; y: number; z: number } | null;
   replayBoard?: number[] | null;
+  interactionDisabled?: boolean;
+  onPlace: (grid: Vec3) => void;
 }) {
   const snapshot = useGameSnapshot();
   const { transparencyEnabled } = useViewState();
-  const [hoverPos, setHoverPos] = useState<[number, number, number] | null>(null);
-  const [hoverGrid, setHoverGrid] = useState<{ x: number; y: number; z: number } | null>(null);
+  const [hoverGrid, setHoverGrid] = useState<Vec3 | null>(null);
 
   const { sizeX, sizeY, sizeZ } = snapshot.config;
 
-  const handleHover = useCallback(
-    (pos: [number, number, number] | null, grid: { x: number; y: number; z: number } | null) => {
-      setHoverPos(pos);
-      setHoverGrid(grid);
-    },
-    [],
-  );
+  const handleHover = useCallback((grid: Vec3 | null) => setHoverGrid(grid), []);
+  const hoverPos = hoverGrid
+    ? gridToWorld(hoverGrid.x, hoverGrid.y, hoverGrid.z, sizeX, sizeY, sizeZ)
+    : null;
 
   // Preview position: typed coords take priority, otherwise show hover preview
   const previewPos = previewCoords
@@ -233,19 +201,22 @@ export function GameScene({ previewCoords, replayBoard }: {
   return (
     <group>
       {/* Three-point lighting setup for dramatic 3D look */}
-      <ambientLight intensity={0.35} />
-      <directionalLight position={[12, 8, 18]} intensity={1.0} castShadow color="#fffaf0" />
-      <directionalLight position={[-8, -6, 10]} intensity={0.3} color="#8090ff" />
-      <pointLight position={[0, 0, 20]} intensity={0.5} color="#4a90d9" distance={50} />
-      <pointLight position={[-12, -12, 5]} intensity={0.3} color="#7b61ff" distance={40} />
+      <ambientLight intensity={0.28} />
+      <hemisphereLight args={["#c7edff", "#101827", 0.55]} />
+      <directionalLight position={[12, 8, 18]} intensity={1.25} color="#fffaf0" />
+      <directionalLight position={[-8, -6, 10]} intensity={0.42} color="#8090ff" />
+      <pointLight position={[0, 0, 20]} intensity={0.62} color="#4a90d9" distance={50} />
+      <pointLight position={[-12, -12, 5]} intensity={0.36} color="#7b61ff" distance={40} />
 
-      {!transparencyEnabled && <BoardGrid sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} />}
+      <BoardGrid sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} xray={transparencyEnabled} />
       <Stones sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ} hoverGrid={hoverGrid} replayBoard={replayBoard} />
 
       <BoardHitTarget
         sizeX={sizeX} sizeY={sizeY} sizeZ={sizeZ}
         snapshot={snapshot}
+        disabled={interactionDisabled}
         onHover={handleHover}
+        onPlace={onPlace}
       />
 
       <HoverIndicator position={hoverPos} />

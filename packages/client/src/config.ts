@@ -2,13 +2,13 @@
  * Shared configuration constants.
  */
 
-/** API base URL for Worker (WebSocket + REST). */
-export const API_BASE = import.meta.env.VITE_API_URL
+/** Multiplayer Worker base URL. VITE_API_URL is retained for deploy compatibility. */
+const SERVER_BASE = import.meta.env.VITE_API_URL
   || (location.hostname.includes("pages.dev")
     ? "https://connect6-server.1310205058.workers.dev"
     : "");
 
-/** WebSocket base URL derived from API_BASE. */
-export const WS_BASE = API_BASE
-  ? API_BASE.replace(/^http/, "ws")
+/** WebSocket base URL for multiplayer rooms. */
+export const WS_BASE = SERVER_BASE
+  ? SERVER_BASE.replace(/^http/, "ws")
   : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;

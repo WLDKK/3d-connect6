@@ -26,13 +26,14 @@ export function ReplayControls() {
   const totalRounds = totalMoves === 0 ? 0 : Math.floor((totalMoves - 1) / 2) + 1;
 
   return (
-    <div className="absolute bottom-4 left-4 pointer-events-auto">
+    <div className="replay-controls absolute bottom-16 left-4 pointer-events-auto">
       <div className={`${bg} backdrop-blur-sm border ${border} rounded-lg px-3 py-2 flex items-center gap-2 font-mono text-xs`}>
         <button
           onClick={goBack}
           disabled={viewIndex <= 0}
           className={`px-2 py-1 rounded ${btnBg} ${text} disabled:opacity-30 transition-colors`}
           title="上一回合"
+          aria-label="上一回合"
         >
           ◀
         </button>
@@ -46,6 +47,7 @@ export function ReplayControls() {
           disabled={viewIndex >= totalMoves}
           className={`px-2 py-1 rounded ${btnBg} ${text} disabled:opacity-30 transition-colors`}
           title="下一回合"
+          aria-label="下一回合"
         >
           ▶
         </button>
@@ -55,6 +57,7 @@ export function ReplayControls() {
             onClick={goLatest}
             className={`px-2 py-1 rounded ${btnBg} ${text} transition-colors ml-1`}
             title="回到最新"
+            aria-label="回到最新局面"
           >
             ⏭
           </button>

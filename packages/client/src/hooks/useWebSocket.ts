@@ -7,6 +7,7 @@ import {
   type StatePayload,
   type TimerPayload,
   type MovePayload,
+  type ResetAckPayload,
   type SerializedState,
   Player,
 } from "@connect6/shared";
@@ -19,7 +20,9 @@ interface WebSocketState {
   roomInfo: RoomInfoPayload | null;
   lastState: StatePayload | null;
   timer: TimerPayload | null;
+  movePending: boolean;
   pendingReset: boolean;
+  lastResetAck: ResetAckPayload | null;
   showReadyDialog: boolean;
   error: string | null;
 }
@@ -30,7 +33,9 @@ const initialState: WebSocketState = {
   roomInfo: null,
   lastState: null,
   timer: null,
+  movePending: false,
   pendingReset: false,
+  lastResetAck: null,
   showReadyDialog: false,
   error: null,
 };
@@ -40,6 +45,8 @@ let state: WebSocketState = { ...initialState };
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+let connectionGeneration = 0;
+let activeUrl: string | null = null;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const listeners = new Set<() => void>();
 
@@ -67,30 +74,47 @@ function getSnapshot() {
 
 function connect(url: string) {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-    return;
+    if (activeUrl === url) return;
+    ws.onclose = null;
+    ws.close();
+    ws = null;
   }
 
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  const generation = ++connectionGeneration;
+  activeUrl = url;
   setState({ status: "connecting", error: null });
   reconnectAttempts = 0;
-  doConnect(url);
+  doConnect(url, generation);
 }
 
-function doConnect(url: string) {
+function doConnect(url: string, generation: number) {
+  if (generation !== connectionGeneration) return;
+  let socket: WebSocket;
   try {
-    ws = new WebSocket(url);
-  } catch (e) {
+    socket = new WebSocket(url);
+    ws = socket;
+  } catch {
     setState({ status: "disconnected", error: "Failed to create WebSocket" });
     return;
   }
 
-  ws.onopen = () => {
+  socket.onopen = () => {
+    if (generation !== connectionGeneration) {
+      socket.close();
+      return;
+    }
     reconnectAttempts = 0;
     setState({ status: "connected", error: null });
     // Auto-join on connect
-    ws!.send(JSON.stringify({ type: MsgType.JOIN, payload: {} }));
+    socket.send(JSON.stringify({ type: MsgType.JOIN, payload: {} }));
   };
 
-  ws.onmessage = (event) => {
+  socket.onmessage = (event) => {
+    if (generation !== connectionGeneration) return;
     let msg: WsMessage;
     try {
       msg = JSON.parse(event.data as string);
@@ -106,18 +130,18 @@ function doConnect(url: string) {
       }
       case MsgType.ROOM_INFO: {
         const payload = msg.payload as RoomInfoPayload;
-        setState({ roomInfo: payload });
+        setState({ roomInfo: payload, movePending: false, error: null });
         if (onGameStart) onGameStart(payload.state);
         break;
       }
       case MsgType.STATE: {
         const payload = msg.payload as StatePayload;
-        setState({ lastState: payload });
+        setState({ lastState: payload, movePending: false, error: null });
         if (onStateUpdate) onStateUpdate(payload);
         break;
       }
       case MsgType.ERROR: {
-        setState({ error: msg.payload as string });
+        setState({ error: msg.payload as string, movePending: false });
         break;
       }
       case MsgType.GAME_OVER: {
@@ -132,10 +156,10 @@ function doConnect(url: string) {
         break;
       }
       case MsgType.RESET_ACK: {
-        const ack = msg.payload as { success: boolean };
-        setState({ pendingReset: false });
+        const ack = msg.payload as ResetAckPayload;
+        setState({ pendingReset: false, lastResetAck: ack });
         if (!ack.success) {
-          setState({ error: "重置请求已超时" });
+          setState({ error: ack.reason === "rejected" ? "对方已拒绝重置" : "重置请求已超时" });
           setTimeout(() => setState({ error: null }), 3000);
         }
         break;
@@ -147,55 +171,74 @@ function doConnect(url: string) {
     }
   };
 
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if (generation !== connectionGeneration) return;
     // Clear volatile game state, keep playerColor/roomInfo for reconnect window
     setState({
       status: "disconnected",
       timer: null,
       pendingReset: false,
+      movePending: false,
       showReadyDialog: false,
     });
-    ws = null;
+    if (ws === socket) ws = null;
     // Auto-reconnect
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000);
       reconnectAttempts++;
-      reconnectTimer = setTimeout(() => doConnect(url), delay);
+      reconnectTimer = setTimeout(() => doConnect(url, generation), delay);
     }
   };
 
-  ws.onerror = () => {
+  socket.onerror = () => {
+    if (generation !== connectionGeneration) return;
     setState({ error: "Connection error" });
   };
 }
 
 function disconnect() {
+  connectionGeneration++;
+  activeUrl = null;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
   reconnectAttempts = MAX_RECONNECT_ATTEMPTS; // prevent auto-reconnect
   if (ws) {
+    ws.onclose = null;
     ws.close();
     ws = null;
   }
   setState({ ...initialState });
 }
 
-function sendMove(x: number, y: number, z: number) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+function sendMove(x: number, y: number, z: number): boolean {
+  if (!ws || ws.readyState !== WebSocket.OPEN || state.movePending) return false;
   const payload: MovePayload = { x, y, z };
-  ws.send(JSON.stringify({ type: MsgType.MOVE, payload }));
+  setState({ movePending: true, error: null });
+  try {
+    ws.send(JSON.stringify({ type: MsgType.MOVE, payload }));
+    return true;
+  } catch {
+    setState({ movePending: false, error: "落子发送失败，请重试" });
+    return false;
+  }
 }
 
 function sendResetRequest() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  setState({ lastResetAck: null });
   ws.send(JSON.stringify({ type: MsgType.RESET_REQUEST, payload: {} }));
 }
 
 function sendResetConfirm() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: MsgType.RESET_CONFIRM, payload: {} }));
+}
+
+function sendResetReject() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: MsgType.RESET_REJECT, payload: {} }));
 }
 
 function sendReady() {
@@ -225,6 +268,7 @@ export function useWebSocketActions() {
   const sendMoveRef = useRef(sendMove);
   const sendResetRequestRef = useRef(sendResetRequest);
   const sendResetConfirmRef = useRef(sendResetConfirm);
+  const sendResetRejectRef = useRef(sendResetReject);
   const sendReadyRef = useRef(sendReady);
   const setOnStateUpdateRef = useRef(setOnStateUpdate);
   const setOnGameStartRef = useRef(setOnGameStart);
@@ -240,6 +284,7 @@ export function useWebSocketActions() {
     sendMove: sendMoveRef.current,
     sendResetRequest: sendResetRequestRef.current,
     sendResetConfirm: sendResetConfirmRef.current,
+    sendResetReject: sendResetRejectRef.current,
     sendReady: sendReadyRef.current,
     setOnStateUpdate: setOnStateUpdateRef.current,
     setOnGameStart: setOnGameStartRef.current,

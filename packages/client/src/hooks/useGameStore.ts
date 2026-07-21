@@ -3,7 +3,7 @@ import { Connect6Engine, type SerializedState } from "@connect6/shared";
 import { Stone, Vec3 } from "@connect6/shared";
 
 /** Callback to send a move to the server in multiplayer mode */
-type SendMoveFn = (x: number, y: number, z: number) => void;
+type SendMoveFn = (x: number, y: number, z: number) => boolean;
 
 /** Minimal external-store-based game state — no re-render on every frame */
 function createGameStore() {
@@ -27,8 +27,7 @@ function createGameStore() {
     /** Place a stone — in multiplayer mode sends to server, in local mode applies directly */
     placeStone(x: number, y: number, z: number): boolean {
       if (sendMoveFn) {
-        sendMoveFn(x, y, z);
-        return true;
+        return sendMoveFn(x, y, z);
       }
       const ok = engine.placeStone(x, y, z);
       if (ok) {

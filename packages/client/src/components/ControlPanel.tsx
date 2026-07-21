@@ -10,8 +10,8 @@ export function ControlPanel() {
   const maxIdx = sliceAxis === "x" ? sizeX - 1 : sliceAxis === "y" ? sizeY - 1 : sizeZ - 1;
 
   return (
-    <div className="w-52 font-mono text-xs select-none">
-      <div className="bg-black/60 backdrop-blur-sm border border-cyber-grid rounded-lg p-3 space-y-3">
+    <div className="control-panel w-52 font-mono text-xs select-none">
+      <div className="surface-panel rounded-xl p-3 space-y-3">
         <h2 className="text-cyber-accent text-sm font-bold tracking-wider border-b border-cyber-grid pb-2">
           视图控制
         </h2>
@@ -19,15 +19,17 @@ export function ControlPanel() {
         {/* Theme */}
         <button
           onClick={toggleTheme}
+          aria-label="切换明暗主题"
           className="w-full py-1.5 rounded text-center transition-all bg-cyber-grid/50 text-gray-400 border border-transparent hover:border-cyber-grid"
         >
-          {theme === "dark" ? "🌙 黑夜模式" : "☀️ 白天模式"}
+          {theme === "dark" ? "深色界面" : "浅色界面"}
         </button>
 
         {/* Slice Monitor */}
         <div className="space-y-1">
           <button
             onClick={toggleSliceEnabled}
+            aria-pressed={sliceEnabled}
             className={`w-full py-1.5 rounded text-center transition-all ${
               sliceEnabled
                 ? "bg-cyber-accent/20 text-cyber-accent border border-cyber-accent/40"
@@ -44,6 +46,7 @@ export function ControlPanel() {
                   <button
                     key={axis}
                     onClick={() => { setSliceAxis(axis); setSliceIndex(0); }}
+                    aria-pressed={sliceAxis === axis}
                     className={`flex-1 py-1 rounded text-center transition-all ${
                       sliceAxis === axis
                         ? "bg-cyber-accent/20 text-cyber-accent"
@@ -61,6 +64,7 @@ export function ControlPanel() {
                   min={0}
                   max={maxIdx}
                   value={sliceIndex}
+                  aria-label={`${sliceAxis.toUpperCase()} 轴切片层`}
                   onChange={(e) => setSliceIndex(Number(e.target.value))}
                   className="flex-1 accent-cyan-400 h-1"
                 />
@@ -73,13 +77,14 @@ export function ControlPanel() {
         {/* Transparency */}
         <button
           onClick={toggleTransparency}
+          aria-pressed={transparencyEnabled}
           className={`w-full py-1.5 rounded text-center transition-all ${
             transparencyEnabled
               ? "bg-cyber-glow/20 text-purple-300 border border-purple-500/30"
               : "bg-cyber-grid/50 text-gray-400 border border-transparent hover:border-cyber-grid"
           }`}
         >
-          {transparencyEnabled ? "透视：开" : "透视：关"}
+          {transparencyEnabled ? "遮挡透视：开" : "遮挡透视：关"}
         </button>
 
         <p className="text-gray-600 text-[10px] leading-tight pt-1 border-t border-cyber-grid/50">

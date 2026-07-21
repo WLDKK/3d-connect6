@@ -71,6 +71,14 @@ describe("Connect6Engine", () => {
     expect(engine.placeStone(0, 11, 0)).toBe(false);
   });
 
+  it("rejects non-integer and non-finite coordinates", () => {
+    const engine = new Connect6Engine();
+    expect(engine.placeStone(0.5, 0, 0)).toBe(false);
+    expect(engine.placeStone(Number.NaN, 0, 0)).toBe(false);
+    expect(engine.placeStone(Number.POSITIVE_INFINITY, 0, 0)).toBe(false);
+    expect(engine.state.moves).toHaveLength(0);
+  });
+
   it("rejects placing on occupied cell", () => {
     const engine = new Connect6Engine();
     engine.placeStone(0, 0, 0);
@@ -246,6 +254,15 @@ describe("Connect6Engine", () => {
   it("does NOT detect win on empty board", () => {
     const engine = new Connect6Engine();
     expect(engine.checkWin(0, 0, 0)).toBe(false);
+  });
+
+  it("detects a full-board draw even when the final turn has one stone", () => {
+    const engine = new Connect6Engine({ sizeX: 2, sizeY: 1, sizeZ: 1, winLength: 3 });
+    expect(engine.placeStone(0, 0, 0)).toBe(true);
+    expect(engine.placeStone(1, 0, 0)).toBe(true);
+    expect(engine.state.winner).toBe(Stone.EMPTY);
+    expect(engine.isDraw()).toBe(true);
+    expect(engine.getLegalMoves()).toEqual([]);
   });
 
   // ─── Snapshot serialization ───

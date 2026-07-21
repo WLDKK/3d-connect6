@@ -1,15 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useWebSocketState } from "../hooks/useWebSocket";
 import { useViewState, useViewActions } from "../hooks/useViewStore";
-import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
-
-const AI_MODELS: { id: AiModelId; label: string }[] = [
-  { id: "local", label: "贪心Pro（算法）" },
-  { id: "qwen3.6-plus", label: "Qwen 3.6 Plus" },
-  { id: "qwen3.7-max", label: "Qwen 3.7 Max" },
-  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-  { id: "glm-5.1", label: "GLM 5.1" },
-];
+import { Player, Stone, type ColorChoice } from "@connect6/shared";
 
 const COLOR_OPTIONS: { value: ColorChoice; label: string }[] = [
   { value: "black", label: "执黑（先手）" },
@@ -19,9 +11,9 @@ const COLOR_OPTIONS: { value: ColorChoice; label: string }[] = [
 
 interface LobbyProps {
   onEnterRoom: (roomId: string) => void;
-  onLocalPlay: (model: AiModelId, color: ColorChoice) => void;
-  onTraining: (analyze: boolean, model: AiModelId) => void;
-  onDualAi: (modelBlack: AiModelId, modelWhite: AiModelId) => void;
+  onLocalPlay: (color: ColorChoice) => void;
+  onTraining: (analyze: boolean) => void;
+  onDualAi: () => void;
 }
 
 /* ── Mystic Select ── */
@@ -108,14 +100,11 @@ function MysticBtn({ onClick, children, color = "cyan", disabled }: {
 /* ── Main Lobby ── */
 export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyProps) {
   const [roomId, setRoomId] = useState("");
-  const [aiModel, setAiModel] = useState<AiModelId>("local");
   const [colorChoice, setColorChoice] = useState<ColorChoice>("random");
   const [analyze, setAnalyze] = useState(true);
-  const [trainModel, setTrainModel] = useState<AiModelId>("local");
-  const [dualModelBlack, setDualModelBlack] = useState<AiModelId>("glm-5.1");
-  const [dualModelWhite, setDualModelWhite] = useState<AiModelId>("glm-5.1");
   const { status, error } = useWebSocketState();
   const { toggleTheme } = useViewActions();
+  const { theme } = useViewState();
 
   const handleSubmit = useCallback(() => {
     const id = roomId.trim();
@@ -137,7 +126,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
               className="absolute top-6 right-6 w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] flex items-center justify-center transition-all duration-300 text-sm text-slate-400 hover:text-slate-200"
               title="切换主题"
             >
-              {useViewState().theme === "dark" ? "☀" : "🌙"}
+              {theme === "dark" ? "浅" : "深"}
             </button>
             <h1 className="text-4xl font-black tracking-tight mb-2 bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
               3D 六子棋
@@ -151,42 +140,39 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
           {/* Mode cards */}
           <div className="space-y-3">
             {/* 1. Single Player */}
-            <MysticCard icon="⚔" title="单机对弈" subtitle="人 vs AI" delay={120}>
-              <div className="grid grid-cols-2 gap-2.5 mb-3.5">
-                <MysticSelect label="AI 模型" value={aiModel} onChange={(v) => setAiModel(v as AiModelId)} options={AI_MODELS} />
+            <MysticCard icon="01" title="单机对弈" subtitle="人 vs AI" delay={120}>
+              <div className="grid grid-cols-[1fr_auto] items-end gap-2.5 mb-3.5">
                 <MysticSelect label="执棋" value={colorChoice} onChange={(v) => setColorChoice(v as ColorChoice)} options={COLOR_OPTIONS} />
+                <div className="rounded-lg border border-amber-400/10 bg-amber-400/[0.04] px-3 py-2 font-mono text-[10px] text-amber-300/70">
+                  LOCAL CORE
+                </div>
               </div>
-              <MysticBtn onClick={() => onLocalPlay(aiModel, colorChoice)} color="cyan">开始对弈</MysticBtn>
+              <MysticBtn onClick={() => onLocalPlay(colorChoice)} color="cyan">开始对弈</MysticBtn>
             </MysticCard>
 
             {/* 2. Training */}
-            <MysticCard icon="🧪" title="训练模式" subtitle="自由落子" delay={210}>
+            <MysticCard icon="02" title="训练模式" subtitle="自由落子" delay={210}>
               <div className="flex items-center gap-3 mb-3.5">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={analyze} onChange={(e) => setAnalyze(e.target.checked)}
                     className="w-3.5 h-3.5 rounded accent-purple-400" />
                   <span className="text-[11px] font-mono text-slate-500">AI 分析</span>
                 </label>
-                {analyze && (
-                  <div className="flex-1">
-                    <MysticSelect label="" value={trainModel} onChange={(v) => setTrainModel(v as AiModelId)} options={AI_MODELS} />
-                  </div>
-                )}
+                <span className="ml-auto text-[10px] font-mono text-slate-600">全程离线</span>
               </div>
-              <MysticBtn onClick={() => onTraining(analyze, trainModel)} color="purple">进入训练</MysticBtn>
+              <MysticBtn onClick={() => onTraining(analyze)} color="purple">进入训练</MysticBtn>
             </MysticCard>
 
             {/* 3. AI vs AI */}
-            <MysticCard icon="🤖" title="AI 对抗" subtitle="观赏模式" delay={300}>
-              <div className="grid grid-cols-2 gap-2.5 mb-3.5">
-                <MysticSelect label="⚫ 黑方" value={dualModelBlack} onChange={(v) => setDualModelBlack(v as AiModelId)} options={AI_MODELS} />
-                <MysticSelect label="⚪ 白方" value={dualModelWhite} onChange={(v) => setDualModelWhite(v as AiModelId)} options={AI_MODELS} />
-              </div>
-              <MysticBtn onClick={() => onDualAi(dualModelBlack, dualModelWhite)} color="orange">开始观赏</MysticBtn>
+            <MysticCard icon="03" title="AI 对抗" subtitle="观赏模式" delay={300}>
+              <p className="mb-3.5 text-[10px] font-mono leading-relaxed text-slate-600">
+                同一套本地竞技引擎执掌双方，适合观察攻防策略与复盘算法表现。
+              </p>
+              <MysticBtn onClick={onDualAi} color="orange">开始观赏</MysticBtn>
             </MysticCard>
 
             {/* 4. Multiplayer */}
-            <MysticCard icon="👥" title="多人对战" subtitle="实时匹配" delay={390}>
+            <MysticCard icon="04" title="多人对战" subtitle="实时匹配" delay={390}>
               <div className="flex gap-2.5">
                 <input
                   type="text"
@@ -216,7 +202,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
           <div className="text-center mt-8 text-[10px] font-mono space-x-3 text-slate-700"
             style={{ animation: "fadeUp 0.8s cubic-bezier(0.22,1,0.36,1) 500ms both" }}>
             <a href="https://github.com/WLDKK/3d-connect6/blob/main/RULES.md" target="_blank" rel="noopener"
-              className="hover:text-slate-500 transition-colors duration-300">📖 规则</a>
+              className="hover:text-slate-500 transition-colors duration-300">规则</a>
             <span className="text-slate-800">·</span>
             <a href="https://github.com/WLDKK/3d-connect6" target="_blank" rel="noopener"
               className="hover:text-slate-500 transition-colors duration-300">GitHub</a>
@@ -231,13 +217,16 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
 interface RoomStatusProps { roomId: string; }
 
 export function RoomStatus({ roomId }: RoomStatusProps) {
-  const { status, playerColor, roomInfo, timer, error } = useWebSocketState();
+  const { status, playerColor, roomInfo, lastState, timer, error } = useWebSocketState();
   const [remaining, setRemaining] = useState(0);
 
   const colorName = playerColor === Player.BLACK ? "黑方" : playerColor === Player.WHITE ? "白方" : "观战";
   const isConnected = status === "connected";
   const playerCount = roomInfo ? (roomInfo.players.black ? 1 : 0) + (roomInfo.players.white ? 1 : 0) : 0;
-  const isGameOver = roomInfo?.state?.winner !== Stone.EMPTY;
+  const currentWinner = lastState?.winner ?? roomInfo?.state?.winner ?? Stone.EMPTY;
+  const currentBoard = lastState?.board ?? roomInfo?.state?.board ?? [];
+  const isGameOver = currentWinner !== Stone.EMPTY
+    || (currentBoard.length > 0 && currentBoard.every((stone) => stone !== Stone.EMPTY));
   const isMyTurn = timer?.currentPlayer === playerColor;
 
   useEffect(() => {
@@ -254,7 +243,7 @@ export function RoomStatus({ roomId }: RoomStatusProps) {
   const timerColor = remaining <= 15 ? "text-red-400" : remaining <= 30 ? "text-yellow-400" : "text-slate-500";
 
   return (
-    <div className="absolute bottom-16 right-4 font-mono text-xs pointer-events-none select-none">
+    <div className="room-status absolute bottom-16 right-4 font-mono text-xs pointer-events-none select-none">
       <div className="mystic-card !p-3 !rounded-lg">
         <div className="text-slate-600 text-[10px] mb-1">房间: {roomId}</div>
         <div className="flex items-center gap-2">
@@ -264,7 +253,7 @@ export function RoomStatus({ roomId }: RoomStatusProps) {
         </div>
         {timer && !isGameOver && remaining > 0 && (
           <div className={`text-[11px] mt-1 font-bold ${timerColor}`}>
-            ⏳ {remaining}s{isMyTurn && " — 你的回合"}
+            {remaining}s{isMyTurn && " — 你的回合"}
           </div>
         )}
         {error && <div className="text-red-400/80 text-[10px] mt-1">{error}</div>}

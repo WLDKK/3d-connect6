@@ -1,97 +1,100 @@
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import * as THREE from "three";
 import type { Vec3 } from "@connect6/shared";
 import { useViewState } from "../hooks/useViewStore";
 
 export const CELL_SIZE = 1.5;
-const HALF = CELL_SIZE / 2;
 
 // Right-hand coordinate system: Z up, X left, Y right (depth)
-// Grid (x,y,z) → World: (-x*CELL, y*CELL, z*CELL) centered at origin
+// Grid (x,y,z) -> World: (-x*CELL, y*CELL, z*CELL) centered at origin
 
 interface BoardGridProps {
   sizeX: number;
   sizeY: number;
   sizeZ: number;
+  xray?: boolean;
 }
 
-/**
- * Wireboard grid — renders small dashed cube wireframes at each cell.
- */
-export function BoardGrid({ sizeX, sizeY, sizeZ }: BoardGridProps) {
-  const lineRef = useRef<THREE.LineSegments>(null);
+/** Connected lattice plus a brighter outer cage for spatial orientation. */
+export function BoardGrid({ sizeX, sizeY, sizeZ, xray = false }: BoardGridProps) {
   const { theme } = useViewState();
-  const gridColor = theme === "dark" ? "#3a4a5a" : "#a0aab4";
+  const gridColor = theme === "dark" ? "#42637a" : "#728292";
+  const frameColor = theme === "dark" ? "#00d9f5" : "#176b87";
 
   const geometry = useMemo(() => {
     const positions: number[] = [];
-    const lo = -HALF * 0.42;
-    const hi = HALF * 0.42;
+    const [xMin] = gridToWorld(sizeX - 1, 0, 0, sizeX, sizeY, sizeZ);
+    const [xMax] = gridToWorld(0, 0, 0, sizeX, sizeY, sizeZ);
+    const [, yMin] = gridToWorld(0, 0, 0, sizeX, sizeY, sizeZ);
+    const [, yMax] = gridToWorld(0, sizeY - 1, 0, sizeX, sizeY, sizeZ);
+    const [, , zMin] = gridToWorld(0, 0, 0, sizeX, sizeY, sizeZ);
+    const [, , zMax] = gridToWorld(0, 0, sizeZ - 1, sizeX, sizeY, sizeZ);
 
-    const edges: [number[], number[]][] = [
-      [[lo, lo, lo], [hi, lo, lo]], [[hi, lo, lo], [hi, lo, hi]],
-      [[hi, lo, hi], [lo, lo, hi]], [[lo, lo, hi], [lo, lo, lo]],
-      [[lo, hi, lo], [hi, hi, lo]], [[hi, hi, lo], [hi, hi, hi]],
-      [[hi, hi, hi], [lo, hi, hi]], [[lo, hi, hi], [lo, hi, lo]],
-      [[lo, lo, lo], [lo, hi, lo]], [[hi, lo, lo], [hi, hi, lo]],
-      [[hi, lo, hi], [hi, hi, hi]], [[lo, lo, hi], [lo, hi, hi]],
-    ];
-
-    for (let z = 0; z < sizeZ; z++) {
-      for (let y = 0; y < sizeY; y++) {
-        for (let x = 0; x < sizeX; x++) {
-          const [cx, cy, cz] = gridToWorld(x, y, z, sizeX, sizeY, sizeZ);
-          for (const [a, b] of edges) {
-            positions.push(
-              cx + a[0], cy + a[1], cz + a[2],
-              cx + b[0], cy + b[1], cz + b[2],
-            );
-          }
-        }
-      }
+    for (let z = 0; z < sizeZ; z++) for (let y = 0; y < sizeY; y++) {
+      const [, wy, wz] = gridToWorld(0, y, z, sizeX, sizeY, sizeZ);
+      positions.push(xMin, wy, wz, xMax, wy, wz);
+    }
+    for (let z = 0; z < sizeZ; z++) for (let x = 0; x < sizeX; x++) {
+      const [wx, , wz] = gridToWorld(x, 0, z, sizeX, sizeY, sizeZ);
+      positions.push(wx, yMin, wz, wx, yMax, wz);
+    }
+    for (let y = 0; y < sizeY; y++) for (let x = 0; x < sizeX; x++) {
+      const [wx, wy] = gridToWorld(x, y, 0, sizeX, sizeY, sizeZ);
+      positions.push(wx, wy, zMin, wx, wy, zMax);
     }
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geo.computeBoundingSphere();
-    // Compute line distances for dashed material
-    const count = positions.length / 3;
-    const dists = new Float32Array(count);
-    for (let i = 0; i < count; i += 2) {
-      const ax = positions[i * 3], ay = positions[i * 3 + 1], az = positions[i * 3 + 2];
-      const bx = positions[(i + 1) * 3], by = positions[(i + 1) * 3 + 1], bz = positions[(i + 1) * 3 + 2];
-      const len = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
-      dists[i] = 0;
-      dists[i + 1] = len;
-    }
-    geo.setAttribute("lineDistance", new THREE.Float32BufferAttribute(dists, 1));
-    return geo;
+    const result = new THREE.BufferGeometry();
+    result.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    result.computeBoundingSphere();
+    return result;
+  }, [sizeX, sizeY, sizeZ]);
+
+  const frameGeometry = useMemo(() => {
+    const box = new THREE.BoxGeometry(
+      sizeX * CELL_SIZE,
+      sizeY * CELL_SIZE,
+      sizeZ * CELL_SIZE,
+    );
+    const edges = new THREE.EdgesGeometry(box);
+    box.dispose();
+    return edges;
   }, [sizeX, sizeY, sizeZ]);
 
   return (
-    <lineSegments ref={lineRef} geometry={geometry}>
-      <lineBasicMaterial color={gridColor} transparent opacity={0.5} />
-    </lineSegments>
+    <group>
+      <lineSegments geometry={geometry}>
+        <lineBasicMaterial
+          color={gridColor}
+          transparent
+          opacity={xray ? 0.1 : 0.3}
+          depthWrite={false}
+        />
+      </lineSegments>
+      <lineSegments geometry={frameGeometry}>
+        <lineBasicMaterial
+          color={frameColor}
+          transparent
+          opacity={xray ? 0.28 : 0.58}
+          depthWrite={false}
+        />
+      </lineSegments>
+    </group>
   );
 }
 
-/**
- * Grid → World (right-hand, Z-up, X-left)
- */
+/** Grid -> World (right-hand, Z-up, X-left). */
 export function gridToWorld(
   x: number, y: number, z: number,
   sizeX: number, sizeY: number, sizeZ: number,
 ): [number, number, number] {
   return [
-    -x * CELL_SIZE + ((sizeX - 1) * CELL_SIZE) / 2,  // X: left
-    y * CELL_SIZE - ((sizeY - 1) * CELL_SIZE) / 2,    // Y: right (depth)
-    z * CELL_SIZE - ((sizeZ - 1) * CELL_SIZE) / 2,    // Z: up
+    -x * CELL_SIZE + ((sizeX - 1) * CELL_SIZE) / 2,
+    y * CELL_SIZE - ((sizeY - 1) * CELL_SIZE) / 2,
+    z * CELL_SIZE - ((sizeZ - 1) * CELL_SIZE) / 2,
   ];
 }
 
-/**
- * World → Grid (inverse of gridToWorld)
- */
+/** World -> Grid (inverse of gridToWorld). */
 export function worldToGrid(
   wx: number, wy: number, wz: number,
   sizeX: number, sizeY: number, sizeZ: number,
