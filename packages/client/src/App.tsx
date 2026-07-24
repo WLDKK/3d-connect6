@@ -13,27 +13,15 @@ import { TrainingAnalysis } from "./components/TrainingAnalysis";
 import { ReplayControls } from "./components/ReplayControls";
 import { CoordInput } from "./components/CoordInput";
 import { CameraDirectionTracker } from "./components/CameraDirectionTracker";
-import { useAiMemoryActions, useMemoryStats } from "./hooks/useAiMemory";
 import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, resetReplay } from "./hooks/useReplayStore";
-import { Player, Stone, type StatePayload, type AiModelId, type ColorChoice, type Vec3 } from "@connect6/shared";
+import { Player, Stone, type StatePayload, type ColorChoice, type Vec3 } from "@connect6/shared";
 
-import { API_BASE, WS_BASE } from "./config";
+import { WS_BASE } from "./config";
 
-const AI_MODEL_LABELS: Record<AiModelId, string> = {
-  "local": "贪心Pro",
-  "qwen3.6-plus": "Qwen 3.6+",
-  "qwen3.7-max": "Qwen 3.7 Max",
-  "deepseek-v4-flash": "DeepSeek V4",
-  "glm-5.1": "GLM 5.1",
-};
-
-function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, memoryEntries, dualAiModels }: {
-  mode: "local" | "online"; aiModel: AiModelId;
-  aiSource: "llm" | "local" | null; aiThinking: boolean;
+function HUD({ mode, aiThinking, onResetRequest, gameMode }: {
+  mode: "local" | "online"; aiThinking: boolean;
   onResetRequest: () => void;
   gameMode: "normal" | "training" | "dual_ai";
-  memoryEntries: number;
-  dualAiModels: { black: AiModelId; white: AiModelId };
 }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
@@ -51,7 +39,6 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, me
   const isGameOver = snapshot.winner !== Stone.EMPTY;
   const winnerName = snapshot.winner === Player.BLACK ? "黑方" : snapshot.winner === Player.WHITE ? "白方" : "";
   const stoneCount = snapshot.board.reduce((n, s) => s !== 0 ? n + 1 : n, 0);
-  const aiSourceLabel = aiSource === "llm" ? "☁️ LLM" : aiSource === "local" ? "💻 本地" : "";
 
   const handleResetClick = () => {
     if (isGameOver && mode === "online") {
@@ -83,13 +70,8 @@ function HUD({ mode, aiModel, aiSource, aiThinking, onResetRequest, gameMode, me
       <h1 className="text-2xl font-bold tracking-wider mb-1">3D 六子棋</h1>
       <p className={`text-[10px] ${accentMuted} mb-2`}>
         {gameMode === "training" ? "训练" : gameMode === "dual_ai" ? "AI 对抗" : mode === "local" ? "单机" : "多人"}
-        {gameMode === "dual_ai"
-          ? ` · ⚫${AI_MODEL_LABELS[dualAiModels.black]} ⚪${AI_MODEL_LABELS[dualAiModels.white]}`
-          : gameMode !== "training" && ` · ${AI_MODEL_LABELS[aiModel]}`
-        }
-        {aiSourceLabel ? ` (${aiSourceLabel})` : ""}
+        {gameMode !== "training" && " · 贪心Pro"}
         {" · 棋子 "}{stoneCount}
-        {memoryEntries > 0 && ` · 记忆 ${memoryEntries} 条`}
       </p>
       {isGameOver ? (
         <div>
@@ -178,17 +160,15 @@ function MultiplayerSync({ roomId }: { roomId: string }) {
   return null;
 }
 
-function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dualAiModels, onBack }: {
-  roomId: string | null; aiColor: Player | null; aiModel: AiModelId;
+function GameContent({ roomId, aiColor, gameMode, trainingAnalyze, onBack }: {
+  roomId: string | null; aiColor: Player | null;
   gameMode: "normal" | "training" | "dual_ai";
   trainingAnalyze: boolean;
-  dualAiModels: { black: AiModelId; white: AiModelId };
   onBack: () => void;
 }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
   const [previewCoords, setPreviewCoords] = useState<{ x: number; y: number; z: number } | null>(null);
-  const [aiSource, setAiSource] = useState<"llm" | "local" | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [waitingReset, setWaitingReset] = useState(false);
@@ -196,8 +176,6 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
 
   const { sendResetRequest, sendResetConfirm, sendReady } = useWebSocketActions();
   const { pendingReset, showReadyDialog, timer } = useWebSocketState();
-  const { learn: learnFromGame } = useAiMemoryActions();
-  const memoryStats = useMemoryStats();
   const replayState = useReplayState();
   const { goLatest } = useReplayActions();
 
@@ -205,10 +183,6 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
 
   const replayBoard = !replayState.isLive ? getReplayBoard(snapshot, replayState.viewIndex) : null;
   const isGameOver = snapshot.winner !== Stone.EMPTY;
-
-  useEffect(() => {
-    if (isGameOver && snapshot.moves.length > 0) learnFromGame(snapshot);
-  }, [isGameOver]);
 
   useEffect(() => { if (pendingReset) setShowResetDialog(true); }, [pendingReset]);
   useEffect(() => { if (timer) setWaitingReady(false); }, [timer]);
@@ -237,12 +211,12 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
     <div className={`w-full h-full relative ${bgClass}`}>
       {roomId && <MultiplayerSync roomId={roomId} />}
       {gameMode === "normal" && aiColor && (
-        <AiController aiColor={aiColor} model={aiModel} onAiSource={setAiSource} onThinking={setAiThinking} />
+        <AiController aiColor={aiColor} onThinking={setAiThinking} />
       )}
       {gameMode === "dual_ai" && (
         <>
-          <AiController aiColor={Player.BLACK} model={dualAiModels.black} onAiSource={setAiSource} onThinking={setAiThinking} />
-          <AiController aiColor={Player.WHITE} model={dualAiModels.white} onAiSource={setAiSource} onThinking={setAiThinking} />
+          <AiController aiColor={Player.BLACK} onThinking={setAiThinking} />
+          <AiController aiColor={Player.WHITE} onThinking={setAiThinking} />
         </>
       )}
 
@@ -263,13 +237,9 @@ function GameContent({ roomId, aiColor, aiModel, gameMode, trainingAnalyze, dual
 
       <HUD
         mode={roomId ? "online" : "local"}
-        aiModel={aiModel}
-        aiSource={aiSource}
         aiThinking={aiThinking}
         onResetRequest={handleResetRequest}
         gameMode={gameMode}
-        memoryEntries={memoryStats.entries}
-        dualAiModels={dualAiModels}
       />
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         <ControlPanel />
@@ -351,38 +321,35 @@ export default function App() {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [inGame, setInGame] = useState(false);
   const [aiColor, setAiColor] = useState<Player | null>(null);
-  const [aiModel, setAiModel] = useState<AiModelId>("local");
   const [gameMode, setGameMode] = useState<"normal" | "training" | "dual_ai">("normal");
   const [trainingAnalyze, setTrainingAnalyze] = useState(false);
-  const [dualAiModels, setDualAiModels] = useState<{ black: AiModelId; white: AiModelId }>({ black: "local", white: "local" });
   const { connect, disconnect } = useWebSocketActions();
 
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
 
   const handleEnterRoom = useCallback((id: string) => {
     store.reset(); resetReplay(); setRoomId(id); setInGame(true);
-    setAiColor(null); setAiModel("local"); setGameMode("normal");
+    setAiColor(null); setGameMode("normal");
     connect(`${WS_BASE}/api/room/${encodeURIComponent(id)}`);
   }, [connect, store]);
 
-  const handleLocalPlay = useCallback((model: AiModelId, color: ColorChoice) => {
+  const handleLocalPlay = useCallback((color: ColorChoice) => {
     disconnect(); store.reset(); resetReplay();
-    setRoomId(null); setInGame(true); setAiModel(model); setGameMode("normal");
+    setRoomId(null); setInGame(true); setGameMode("normal");
     if (color === "random") setAiColor(Math.random() < 0.5 ? Player.WHITE : Player.BLACK);
     else setAiColor(color === "black" ? Player.WHITE : Player.BLACK);
   }, [store, disconnect]);
 
-  const handleTraining = useCallback((analyze: boolean, model: AiModelId) => {
+  const handleTraining = useCallback((analyze: boolean) => {
     disconnect(); store.reset(); resetReplay();
     setRoomId(null); setInGame(true); setAiColor(null);
-    setAiModel(model); setGameMode("training"); setTrainingAnalyze(analyze);
+    setGameMode("training"); setTrainingAnalyze(analyze);
   }, [store, disconnect]);
 
-  const handleDualAi = useCallback((modelBlack: AiModelId, modelWhite: AiModelId) => {
+  const handleDualAi = useCallback(() => {
     disconnect(); store.reset(); resetReplay();
     setRoomId(null); setInGame(true); setAiColor(Player.WHITE);
-    setAiModel(modelWhite); setGameMode("dual_ai");
-    setDualAiModels({ black: modelBlack, white: modelWhite });
+    setGameMode("dual_ai");
   }, [store, disconnect]);
 
   const handleLeaveRoom = useCallback(() => {
@@ -394,9 +361,9 @@ export default function App() {
     <GameStoreContext.Provider value={store}>
       {inGame ? (
         <GameContent
-          roomId={roomId} aiColor={aiColor} aiModel={aiModel}
+          roomId={roomId} aiColor={aiColor}
           gameMode={gameMode} trainingAnalyze={trainingAnalyze}
-          dualAiModels={dualAiModels} onBack={handleLeaveRoom}
+          onBack={handleLeaveRoom}
         />
       ) : (
         <Lobby

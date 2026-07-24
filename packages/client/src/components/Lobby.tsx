@@ -1,15 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useWebSocketState } from "../hooks/useWebSocket";
 import { useViewState, useViewActions } from "../hooks/useViewStore";
-import { Player, Stone, type AiModelId, type ColorChoice } from "@connect6/shared";
-
-const AI_MODELS: { id: AiModelId; label: string }[] = [
-  { id: "local", label: "贪心Pro（算法）" },
-  { id: "qwen3.6-plus", label: "Qwen 3.6 Plus" },
-  { id: "qwen3.7-max", label: "Qwen 3.7 Max" },
-  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-  { id: "glm-5.1", label: "GLM 5.1" },
-];
+import { Player, Stone, type ColorChoice } from "@connect6/shared";
 
 const COLOR_OPTIONS: { value: ColorChoice; label: string }[] = [
   { value: "black", label: "执黑（先手）" },
@@ -19,9 +11,9 @@ const COLOR_OPTIONS: { value: ColorChoice; label: string }[] = [
 
 interface LobbyProps {
   onEnterRoom: (roomId: string) => void;
-  onLocalPlay: (model: AiModelId, color: ColorChoice) => void;
-  onTraining: (analyze: boolean, model: AiModelId) => void;
-  onDualAi: (modelBlack: AiModelId, modelWhite: AiModelId) => void;
+  onLocalPlay: (color: ColorChoice) => void;
+  onTraining: (analyze: boolean) => void;
+  onDualAi: () => void;
 }
 
 /* ── Mystic Select ── */
@@ -43,6 +35,18 @@ function MysticSelect({ label, value, onChange, options }: {
           ))}
         </select>
         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[9px] text-white/20">▾</span>
+      </div>
+    </div>
+  );
+}
+
+/** Read-only replacement for the retired cloud model selector. */
+function LocalAiField({ label }: { label: string }) {
+  return (
+    <div>
+      <span className="text-[10px] font-mono block mb-1 text-slate-500">{label}</span>
+      <div className="w-full bg-white/[0.04] text-slate-200 px-3 py-2 rounded-lg border border-white/[0.06] font-mono text-xs">
+        贪心Pro（本地）
       </div>
     </div>
   );
@@ -108,14 +112,11 @@ function MysticBtn({ onClick, children, color = "cyan", disabled }: {
 /* ── Main Lobby ── */
 export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyProps) {
   const [roomId, setRoomId] = useState("");
-  const [aiModel, setAiModel] = useState<AiModelId>("local");
   const [colorChoice, setColorChoice] = useState<ColorChoice>("random");
   const [analyze, setAnalyze] = useState(true);
-  const [trainModel, setTrainModel] = useState<AiModelId>("local");
-  const [dualModelBlack, setDualModelBlack] = useState<AiModelId>("glm-5.1");
-  const [dualModelWhite, setDualModelWhite] = useState<AiModelId>("glm-5.1");
   const { status, error } = useWebSocketState();
   const { toggleTheme } = useViewActions();
+  const { theme } = useViewState();
 
   const handleSubmit = useCallback(() => {
     const id = roomId.trim();
@@ -137,7 +138,7 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
               className="absolute top-6 right-6 w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] flex items-center justify-center transition-all duration-300 text-sm text-slate-400 hover:text-slate-200"
               title="切换主题"
             >
-              {useViewState().theme === "dark" ? "☀" : "🌙"}
+              {theme === "dark" ? "☀" : "🌙"}
             </button>
             <h1 className="text-4xl font-black tracking-tight mb-2 bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
               3D 六子棋
@@ -153,10 +154,10 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
             {/* 1. Single Player */}
             <MysticCard icon="⚔" title="单机对弈" subtitle="人 vs AI" delay={120}>
               <div className="grid grid-cols-2 gap-2.5 mb-3.5">
-                <MysticSelect label="AI 模型" value={aiModel} onChange={(v) => setAiModel(v as AiModelId)} options={AI_MODELS} />
+                <LocalAiField label="AI 引擎" />
                 <MysticSelect label="执棋" value={colorChoice} onChange={(v) => setColorChoice(v as ColorChoice)} options={COLOR_OPTIONS} />
               </div>
-              <MysticBtn onClick={() => onLocalPlay(aiModel, colorChoice)} color="cyan">开始对弈</MysticBtn>
+              <MysticBtn onClick={() => onLocalPlay(colorChoice)} color="cyan">开始对弈</MysticBtn>
             </MysticCard>
 
             {/* 2. Training */}
@@ -169,20 +170,20 @@ export function Lobby({ onEnterRoom, onLocalPlay, onTraining, onDualAi }: LobbyP
                 </label>
                 {analyze && (
                   <div className="flex-1">
-                    <MysticSelect label="" value={trainModel} onChange={(v) => setTrainModel(v as AiModelId)} options={AI_MODELS} />
+                    <LocalAiField label="" />
                   </div>
                 )}
               </div>
-              <MysticBtn onClick={() => onTraining(analyze, trainModel)} color="purple">进入训练</MysticBtn>
+              <MysticBtn onClick={() => onTraining(analyze)} color="purple">进入训练</MysticBtn>
             </MysticCard>
 
             {/* 3. AI vs AI */}
             <MysticCard icon="🤖" title="AI 对抗" subtitle="观赏模式" delay={300}>
               <div className="grid grid-cols-2 gap-2.5 mb-3.5">
-                <MysticSelect label="⚫ 黑方" value={dualModelBlack} onChange={(v) => setDualModelBlack(v as AiModelId)} options={AI_MODELS} />
-                <MysticSelect label="⚪ 白方" value={dualModelWhite} onChange={(v) => setDualModelWhite(v as AiModelId)} options={AI_MODELS} />
+                <LocalAiField label="⚫ 黑方" />
+                <LocalAiField label="⚪ 白方" />
               </div>
-              <MysticBtn onClick={() => onDualAi(dualModelBlack, dualModelWhite)} color="orange">开始观赏</MysticBtn>
+              <MysticBtn onClick={onDualAi} color="orange">开始观赏</MysticBtn>
             </MysticCard>
 
             {/* 4. Multiplayer */}

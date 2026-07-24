@@ -1,12 +1,12 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
-  computeAiMove, scoreCell,
+  scoreCell,
   Player, Stone, type Direction,
   type AiRequestPayload, type BoardConfig,
 } from "@connect6/shared";
 import { useGameSnapshot } from "../hooks/useGameStore";
 import { useViewState } from "../hooks/useViewStore";
-import { API_BASE } from "../config";
+import { useAiWorker } from "../hooks/useAiWorker";
 
 // Re-export DIRECTIONS from engine (same as shared/engine.ts)
 const DIRECTIONS: readonly Direction[] = [
@@ -109,8 +109,6 @@ interface Analysis {
   bestMove: { x: number; y: number; z: number } | null;
   bestMoveReason: string;
   threats: string[];
-  source: "llm" | "local";
-  llmText?: string;
 }
 
 /** Score thresholds */
@@ -157,45 +155,12 @@ function analyzeThreats(board: number[], config: BoardConfig, aiStone: Stone): s
   return lines;
 }
 
-/**
- * Call LLM server for analysis.
- */
-async function callLLMAnalysis(snapshot: {
-  board: number[];
-  config: BoardConfig;
-  currentPlayer: number;
-  round: number;
-  stonesPlacedThisTurn: number;
-}): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
-    const res = await fetch(`${API_BASE}/api/ai/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        board: Array.from(snapshot.board),
-        config: snapshot.config,
-        aiColor: snapshot.currentPlayer,
-        currentPlayer: snapshot.currentPlayer,
-        stonesToPlace: snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn,
-      }),
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const data = await res.json() as { text?: string };
-    return data.text || null;
-  } catch {
-    return null;
-  }
-}
-
 export function TrainingAnalysis() {
   const snapshot = useGameSnapshot();
   const { theme } = useViewState();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(false);
+  const { compute } = useAiWorker();
 
   const isDark = theme === "dark";
   const bgPanel = isDark ? "bg-black/70" : "bg-white/80";
@@ -213,41 +178,31 @@ export function TrainingAnalysis() {
     const aiStone = currentPlayer as unknown as Stone;
     const oppStone = aiStone === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
 
-    // Step 1: Threat analysis
-    const threats = analyzeThreats(board, config, aiStone);
+    try {
+      const threats = analyzeThreats(board, config, aiStone);
+      const req: AiRequestPayload = {
+        board,
+        config,
+        aiColor: currentPlayer,
+        currentPlayer,
+        stonesToPlace: snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn,
+      };
+      const localResult = await compute(req);
+      let bestMove: { x: number; y: number; z: number } | null = null;
+      let bestMoveReason = "无可用着法";
 
-    // Step 2: Find best local move and explain WHY
-    const req: AiRequestPayload = {
-      board,
-      config,
-      aiColor: currentPlayer,
-      currentPlayer,
-      stonesToPlace: snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn,
-      model: "local",
-    };
-    const localResult = computeAiMove(req);
-    let bestMove: { x: number; y: number; z: number } | null = null;
-    let bestMoveReason = "无可用着法";
+      if (localResult.moves.length > 0) {
+        bestMove = localResult.moves[0];
+        bestMoveReason = explainMove(board, config, bestMove.x, bestMove.y, bestMove.z, aiStone, oppStone);
+      }
 
-    if (localResult.moves.length > 0) {
-      bestMove = localResult.moves[0];
-      bestMoveReason = explainMove(board, config, bestMove.x, bestMove.y, bestMove.z, aiStone, oppStone);
+      setAnalysis({ bestMove, bestMoveReason, threats });
+    } catch {
+      setAnalysis(null);
+    } finally {
+      setLoading(false);
     }
-
-    setAnalysis({
-      bestMove,
-      bestMoveReason,
-      threats,
-      source: "local",
-    });
-
-    // Step 3: Try LLM analysis
-    const llmResult = await callLLMAnalysis(snapshot);
-    if (llmResult) {
-      setAnalysis(prev => prev ? { ...prev, llmText: llmResult, source: "llm" } : prev);
-    }
-    setLoading(false);
-  }, [snapshot, loading]);
+  }, [compute, snapshot, loading]);
 
   if (snapshot.winner !== Stone.EMPTY) return null;
 
@@ -282,18 +237,9 @@ export function TrainingAnalysis() {
               <p className={`${textDim} mt-1`}>{analysis.bestMoveReason}</p>
             </div>
 
-            {/* LLM deep analysis */}
-            {analysis.llmText && (
-              <div className={`mt-2 p-2 rounded ${isDark ? "bg-white/5" : "bg-black/5"}`}>
-                <p className={`${textColor} text-[10px] font-bold mb-1`}>☁️ 深度分析</p>
-                <p className={`${textDim} leading-relaxed text-[10px]`}>{analysis.llmText}</p>
-              </div>
-            )}
-
             {/* Source */}
             <p className={`text-[9px] ${textDim}`}>
-              {analysis.source === "llm" ? "☁️ LLM 分析" : "💻 本地分析"}
-              {loading && " · 深度分析加载中..."}
+              💻 本地分析
             </p>
           </div>
         ) : (

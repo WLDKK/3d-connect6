@@ -83,7 +83,6 @@ export function CoordInput({ onPreview }: CoordInputProps) {
       aiColor: snapshot.currentPlayer as Player,
       currentPlayer: snapshot.currentPlayer as Player,
       stonesToPlace,
-      model: "local",
     };
 
     computeAi(req).then((result) => {
@@ -98,10 +97,24 @@ export function CoordInput({ onPreview }: CoordInputProps) {
         onPreview(toGrid(ux, uy, uz));
       }
       setAiComputing(false);
+    }).catch(() => {
+      if (!cancelled) setAiComputing(false);
     });
 
-    return () => { cancelled = true; setAiComputing(false); };
-  }, [snapshot.currentPlayer, snapshot.round, snapshot.stonesPlacedThisTurn, snapshot.board, manualMode, sizeX]);
+    return () => { cancelled = true; };
+  }, [
+    computeAi,
+    manualMode,
+    onPreview,
+    sizeX,
+    snapshot.board,
+    snapshot.config,
+    snapshot.currentPlayer,
+    snapshot.round,
+    snapshot.stonesPlacedThisTurn,
+    snapshot.winner,
+    toGrid,
+  ]);
 
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {
     const g = toGrid(ux, uy, uz);

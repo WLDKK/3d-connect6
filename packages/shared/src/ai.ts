@@ -1,114 +1,306 @@
-import { BoardConfig, Player, Stone, Vec3, Direction, AiRequestPayload, AiResponsePayload } from "./types";
-import { AiMemory } from "./ai-memory";
+import {
+  type AiRequestPayload,
+  type AiResponsePayload,
+  type BoardConfig,
+  type Direction,
+  Stone,
+  type Vec3,
+} from "./types";
 import { DIRECTIONS } from "./engine";
+
+const WIN_SCORE = 1_000_000_000;
+const ROOT_REPLY_WIDTH = 4;
+
+interface LineInfo {
+  count: number;
+  openEnds: number;
+  potential: number;
+  span: number;
+}
+
+interface RayInfo {
+  consecutive: number;
+  open: boolean;
+  emptyReach: number;
+  reachable: number;
+}
+
+interface MoveEvaluation {
+  attack: number;
+  defend: number;
+  total: number;
+}
+
+interface ScoredMove extends MoveEvaluation {
+  pos: Vec3;
+}
+
+interface TurnCandidate {
+  moves: Vec3[];
+  board: number[];
+  heuristic: number;
+  winsNow: boolean;
+  ownWinsNext: number;
+  opponentWinsNext: number;
+}
+
+interface PairLimits {
+  first: number;
+  second: number;
+  maxPairs: number;
+}
+
+function indexOf(x: number, y: number, z: number, c: BoardConfig): number {
+  return z * c.sizeY * c.sizeX + y * c.sizeX + x;
+}
 
 function inBounds(x: number, y: number, z: number, c: BoardConfig): boolean {
   return x >= 0 && x < c.sizeX && y >= 0 && y < c.sizeY && z >= 0 && z < c.sizeZ;
 }
 
-function getStone(b: number[], x: number, y: number, z: number, c: BoardConfig): Stone {
-  return b[z * c.sizeY * c.sizeX + y * c.sizeX + x] as Stone;
+function getStone(board: number[], x: number, y: number, z: number, c: BoardConfig): Stone {
+  return board[indexOf(x, y, z, c)] as Stone;
 }
 
-function setStone(b: number[], x: number, y: number, z: number, c: BoardConfig, s: Stone): void {
-  b[z * c.sizeY * c.sizeX + y * c.sizeX + x] = s;
+function setStone(board: number[], pos: Vec3, c: BoardConfig, stone: Stone): void {
+  board[indexOf(pos.x, pos.y, pos.z, c)] = stone;
 }
 
-// ─── Line analysis ───
-
-interface LineInfo {
-  count: number;
-  openEnds: number;
-  /** How many empty cells exist in this line's direction (potential to grow) */
-  potential: number;
+function opposite(stone: Stone): Stone {
+  return stone === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
 }
 
+function posKey(pos: Vec3): string {
+  return `${pos.x},${pos.y},${pos.z}`;
+}
+
+function samePosition(a: Vec3, b: Vec3): boolean {
+  return a.x === b.x && a.y === b.y && a.z === b.z;
+}
+
+function countStones(board: number[]): number {
+  let count = 0;
+  for (const stone of board) if (stone !== Stone.EMPTY) count++;
+  return count;
+}
+
+function centerDistance(pos: Vec3, c: BoardConfig): number {
+  const cx = (c.sizeX - 1) / 2;
+  const cy = (c.sizeY - 1) / 2;
+  const cz = (c.sizeZ - 1) / 2;
+  return Math.abs(pos.x - cx) / c.sizeX
+    + Math.abs(pos.y - cy) / c.sizeY
+    + Math.abs(pos.z - cz) / c.sizeZ;
+}
+
+function scanRay(
+  board: number[], c: BoardConfig,
+  x: number, y: number, z: number,
+  dir: Direction, color: Stone,
+): RayInfo {
+  let consecutive = 0;
+  let emptyReach = 0;
+  let reachable = 0;
+  let contiguous = true;
+  let cx = x + dir.x;
+  let cy = y + dir.y;
+  let cz = z + dir.z;
+  const firstStone = inBounds(cx, cy, cz, c) ? getStone(board, cx, cy, cz, c) : null;
+
+  while (inBounds(cx, cy, cz, c)) {
+    const stone = getStone(board, cx, cy, cz, c);
+    if (stone !== Stone.EMPTY && stone !== color) break;
+    reachable++;
+    if (stone === Stone.EMPTY) {
+      emptyReach++;
+      contiguous = false;
+    } else if (contiguous) {
+      consecutive++;
+    }
+    cx += dir.x;
+    cy += dir.y;
+    cz += dir.z;
+  }
+
+  return {
+    consecutive,
+    open: firstStone === Stone.EMPTY,
+    emptyReach,
+    reachable,
+  };
+}
+
+/** Analyze the contiguous run created by treating the target cell as `color`. */
 function analyzeLine(
-  b: number[], c: BoardConfig,
+  board: number[], c: BoardConfig,
   x: number, y: number, z: number,
   dir: Direction, color: Stone,
 ): LineInfo {
-  let forward = 0, forwardEmpty = 0;
-  let fx = x + dir.x, fy = y + dir.y, fz = z + dir.z;
-  while (inBounds(fx, fy, fz, c)) {
-    const s = getStone(b, fx, fy, fz, c);
-    if (s === color) { forward++; fx += dir.x; fy += dir.y; fz += dir.z; }
-    else if (s === Stone.EMPTY) { forwardEmpty++; break; }
-    else break;
-  }
-  const forwardOpen = inBounds(fx, fy, fz, c) && getStone(b, fx, fy, fz, c) === Stone.EMPTY;
+  const forward = scanRay(board, c, x, y, z, dir, color);
+  const backward = scanRay(
+    board, c, x, y, z,
+    { x: -dir.x, y: -dir.y, z: -dir.z },
+    color,
+  );
 
-  let backward = 0, backwardEmpty = 0;
-  const nd = { x: -dir.x, y: -dir.y, z: -dir.z };
-  let bx = x + nd.x, by = y + nd.y, bz = z + nd.z;
-  while (inBounds(bx, by, bz, c)) {
-    const s = getStone(b, bx, by, bz, c);
-    if (s === color) { backward++; bx += nd.x; by += nd.y; bz += nd.z; }
-    else if (s === Stone.EMPTY) { backwardEmpty++; break; }
-    else break;
-  }
-  const backwardOpen = inBounds(bx, by, bz, c) && getStone(b, bx, by, bz, c) === Stone.EMPTY;
+  return {
+    count: 1 + forward.consecutive + backward.consecutive,
+    openEnds: Number(forward.open) + Number(backward.open),
+    potential: forward.emptyReach + backward.emptyReach,
+    span: 1 + forward.reachable + backward.reachable,
+  };
+}
 
-  const count = 1 + forward + backward;
-  const openEnds = (forwardOpen ? 1 : 0) + (backwardOpen ? 1 : 0);
-  const potential = forwardEmpty + backwardEmpty;
+function contiguousScore(info: LineInfo, winLength: number): number {
+  if (info.count >= winLength) return WIN_SCORE;
+  if (info.span < winLength || info.openEnds === 0) return 0;
 
-  return { count, openEnds, potential };
+  const gap = winLength - info.count;
+  const halfOpen = [0, 180_000, 14_000, 850, 75, 12, 3];
+  const fullyOpen = [0, 310_000, 34_000, 2_400, 220, 32, 6];
+  const table = info.openEnds === 2 ? fullyOpen : halfOpen;
+  const base = table[Math.min(gap, table.length - 1)] ?? 2;
+  return base + Math.min(info.potential, winLength) * 0.2;
+}
+
+function windowBaseScore(stones: number, winLength: number): number {
+  const gap = winLength - stones;
+  if (gap <= 0) return WIN_SCORE;
+  const scores = [0, 125_000, 7_500, 520, 48, 9, 3];
+  return scores[Math.min(gap, scores.length - 1)] ?? Math.max(2, stones * 2);
 }
 
 /**
- * Core line scoring with nuanced open/half-open distinction.
- * Exponential growth for open lines makes the AI prioritize building them.
+ * Scores every win-length window containing the target. Unlike contiguous-only
+ * evaluation, this recognizes bridge moves such as XX_XX and 3D broken lines.
  */
-function lineScore(count: number, openEnds: number, winLength: number): number {
-  if (count >= winLength) return 500000;
-  if (openEnds === 0) return 0;
+function directionPatternScore(
+  board: number[], c: BoardConfig,
+  x: number, y: number, z: number,
+  dir: Direction, color: Stone,
+): number {
+  let bestWindow = 0;
 
-  // [half-open, open] scores
-  const table: [number, number][] = [
-    [0, 0],       // 0: unused
-    [2, 4],       // 1 stone
-    [8, 20],      // 2 stones
-    [30, 100],    // 3 stones
-    [200, 1200],  // 4 stones
-    [5000, 50000], // 5 stones (one move from win)
-  ];
+  for (let start = -(c.winLength - 1); start <= 0; start++) {
+    let stones = 0;
+    let blocked = false;
+    let firstStone = c.winLength;
+    let lastStone = -1;
+    const cells: Stone[] = [];
 
-  const idx = Math.min(count, winLength - 1);
-  const row = table[idx] || [count * 50, count * 100];
-  return openEnds === 2 ? row[1] : row[0];
+    for (let offset = 0; offset < c.winLength; offset++) {
+      const step = start + offset;
+      const cx = x + step * dir.x;
+      const cy = y + step * dir.y;
+      const cz = z + step * dir.z;
+      if (!inBounds(cx, cy, cz, c)) {
+        blocked = true;
+        break;
+      }
+      const stone = step === 0 ? color : getStone(board, cx, cy, cz, c);
+      cells.push(stone);
+      if (stone !== Stone.EMPTY && stone !== color) {
+        blocked = true;
+        break;
+      }
+      if (stone === color) {
+        stones++;
+        firstStone = Math.min(firstStone, offset);
+        lastStone = offset;
+      }
+    }
+    if (blocked) continue;
+
+    let internalGaps = 0;
+    for (let i = firstStone; i <= lastStone; i++) {
+      if (cells[i] === Stone.EMPTY) internalGaps++;
+    }
+
+    const beforeStep = start - 1;
+    const afterStep = start + c.winLength;
+    const beforeOpen = inBounds(
+      x + beforeStep * dir.x,
+      y + beforeStep * dir.y,
+      z + beforeStep * dir.z,
+      c,
+    ) && getStone(
+      board,
+      x + beforeStep * dir.x,
+      y + beforeStep * dir.y,
+      z + beforeStep * dir.z,
+      c,
+    ) === Stone.EMPTY;
+    const afterOpen = inBounds(
+      x + afterStep * dir.x,
+      y + afterStep * dir.y,
+      z + afterStep * dir.z,
+      c,
+    ) && getStone(
+      board,
+      x + afterStep * dir.x,
+      y + afterStep * dir.y,
+      z + afterStep * dir.z,
+      c,
+    ) === Stone.EMPTY;
+
+    const openness = Number(beforeOpen) + Number(afterOpen);
+    const gapPenalty = Math.pow(0.7, internalGaps);
+    const score = windowBaseScore(stones, c.winLength)
+      * gapPenalty
+      * (1 + openness * 0.14);
+    bestWindow = Math.max(bestWindow, score);
+  }
+
+  const contiguous = contiguousScore(analyzeLine(board, c, x, y, z, dir, color), c.winLength);
+  return Math.max(bestWindow, contiguous);
 }
 
-/**
- * Threat level scoring — for tactical decision making.
- * Returns how many moves until a line becomes a win.
- */
-function threatLevel(count: number, openEnds: number, winLength: number): number {
-  if (count >= winLength) return 0; // already won
-  if (openEnds === 0) return 999; // dead
-  const gap = winLength - count;
-  if (openEnds === 2) return gap; // need `gap` stones (can use both ends)
-  return gap + 1; // half-open needs one more
+function evaluateMove(
+  board: number[], c: BoardConfig,
+  pos: Vec3, color: Stone, opponent: Stone,
+): MoveEvaluation {
+  const attackScores: number[] = [];
+  const defendScores: number[] = [];
+
+  for (const dir of DIRECTIONS) {
+    attackScores.push(directionPatternScore(board, c, pos.x, pos.y, pos.z, dir, color));
+    defendScores.push(directionPatternScore(board, c, pos.x, pos.y, pos.z, dir, opponent));
+  }
+
+  attackScores.sort((a, b) => b - a);
+  defendScores.sort((a, b) => b - a);
+  const attack = attackScores.reduce((sum, score) => sum + score, 0);
+  const defend = defendScores.reduce((sum, score) => sum + score, 0);
+  const attackFork = (attackScores[1] ?? 0) * 0.72 + (attackScores[2] ?? 0) * 0.28;
+  const defendFork = (defendScores[1] ?? 0) * 0.62;
+  const urgency = defendScores[0] >= WIN_SCORE
+    ? 2
+    : defendScores[0] >= 100_000
+      ? 1.55
+      : defendScores[0] >= 7_000
+        ? 1.3
+        : 1.12;
+  const centerBonus = Math.max(0, 1 - centerDistance(pos, c)) * 28;
+
+  return {
+    attack,
+    defend,
+    total: attack + attackFork + defend * urgency + defendFork + centerBonus,
+  };
 }
 
-// ─── Board evaluation ───
-
-function evaluateBoard(b: number[], c: BoardConfig, color: Stone): number {
+function evaluateBoard(board: number[], c: BoardConfig, color: Stone): number {
   let total = 0;
-  const seen = new Set<string>();
-
   for (let z = 0; z < c.sizeZ; z++) {
     for (let y = 0; y < c.sizeY; y++) {
       for (let x = 0; x < c.sizeX; x++) {
-        if (getStone(b, x, y, z, c) !== color) continue;
+        if (getStone(board, x, y, z, c) !== color) continue;
         for (const dir of DIRECTIONS) {
-          const sx = x - dir.x, sy = y - dir.y, sz = z - dir.z;
-          if (inBounds(sx, sy, sz, c) && getStone(b, sx, sy, sz, c) === color) continue;
-          const key = `${x},${y},${z},${dir.x},${dir.y},${dir.z}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          const info = analyzeLine(b, c, x, y, z, dir, color);
-          total += lineScore(info.count, info.openEnds, c.winLength);
+          const px = x - dir.x;
+          const py = y - dir.y;
+          const pz = z - dir.z;
+          if (inBounds(px, py, pz, c) && getStone(board, px, py, pz, c) === color) continue;
+          total += contiguousScore(analyzeLine(board, c, x, y, z, dir, color), c.winLength);
         }
       }
     }
@@ -116,113 +308,26 @@ function evaluateBoard(b: number[], c: BoardConfig, color: Stone): number {
   return total;
 }
 
-/**
- * Evaluate a single empty cell for `color`.
- * Returns a detailed score considering offensive and defensive value.
- */
-function evaluateMove(
-  b: number[], c: BoardConfig,
-  x: number, y: number, z: number,
-  color: Stone, oppColor: Stone,
-): { attack: number; defend: number; total: number } {
-  let attack = 0, defend = 0;
-
-  for (const dir of DIRECTIONS) {
-    const info = analyzeLine(b, c, x, y, z, dir, color);
-    const infoOpp = analyzeLine(b, c, x, y, z, dir, oppColor);
-
-    attack += lineScore(info.count, info.openEnds, c.winLength);
-    defend += lineScore(infoOpp.count, infoOpp.openEnds, c.winLength);
-  }
-
-  // Center bonus
-  const cx = (c.sizeX - 1) / 2, cy = (c.sizeY - 1) / 2, cz = (c.sizeZ - 1) / 2;
-  const dist = Math.abs(x - cx) / c.sizeX + Math.abs(y - cy) / c.sizeY + Math.abs(z - cz) / c.sizeZ;
-  const centerBonus = (1 - dist) * 3;
-
-  // Defense weight increases when threats are more urgent
-  const defendWeight = defend >= 5000 ? 1.5 : defend >= 1200 ? 1.3 : 1.1;
-
-  return { attack, defend, total: attack + defend * defendWeight + centerBonus };
-}
-
-// ─── Threat counting ───
-
-interface ThreatInfo {
-  /** Number of cells where this color can win immediately */
-  winMoves: number;
-  /** Number of open-5 (one move from win) */
-  open5: number;
-  /** Number of open-4 (forcing, opponent must respond) */
-  open4: number;
-  /** Number of open-3 (building toward threat) */
-  open3: number;
-  /** Can this color create a double threat (two open-4s) in one move? */
-  doubleThreat: boolean;
-  /** Best double-threat move position */
-  doubleThreatPos: Vec3 | null;
-}
-
-function countThreats(b: number[], c: BoardConfig, color: Stone, oppColor: Stone): ThreatInfo {
-  const result: ThreatInfo = { winMoves: 0, open5: 0, open4: 0, open3: 0, doubleThreat: false, doubleThreatPos: null };
-
-  for (let z = 0; z < c.sizeZ; z++) {
-    for (let y = 0; y < c.sizeY; y++) {
-      for (let x = 0; x < c.sizeX; x++) {
-        if (getStone(b, x, y, z, c) !== Stone.EMPTY) continue;
-
-        let cellOpen4Count = 0;
-        let cellOpen5Count = 0;
-
-        for (const dir of DIRECTIONS) {
-          const info = analyzeLine(b, c, x, y, z, dir, color);
-          if (info.count >= c.winLength) result.winMoves++;
-          else if (info.count === c.winLength - 1 && info.openEnds === 2) cellOpen5Count++;
-          else if (info.count === c.winLength - 2 && info.openEnds === 2) cellOpen4Count++;
-          else if (info.count === c.winLength - 3 && info.openEnds === 2) result.open3++;
-        }
-
-        result.open5 += cellOpen5Count;
-        result.open4 += cellOpen4Count;
-
-        // Double threat: this cell creates 2+ open-4s simultaneously
-        if (cellOpen4Count >= 2 && !result.doubleThreat) {
-          result.doubleThreat = true;
-          result.doubleThreatPos = { x, y, z };
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-// ─── Candidate generation ───
-
-/**
- * Get candidate cells near existing stones (radius 4).
- * Filters to only cells that are actually on or adjacent to a line with stones.
- * This keeps the candidate count reasonable even with a large radius.
- */
-function getCandidates(b: number[], c: BoardConfig): Vec3[] {
+function getCandidates(board: number[], c: BoardConfig): Vec3[] {
   const candidates: Vec3[] = [];
   const seen = new Set<number>();
-  const RADIUS = 4;
+  const radius = Math.max(1, c.winLength - 1);
 
   for (let z = 0; z < c.sizeZ; z++) {
     for (let y = 0; y < c.sizeY; y++) {
       for (let x = 0; x < c.sizeX; x++) {
-        if (getStone(b, x, y, z, c) === Stone.EMPTY) continue;
-        for (let dz = -RADIUS; dz <= RADIUS; dz++) {
-          for (let dy = -RADIUS; dy <= RADIUS; dy++) {
-            for (let dx = -RADIUS; dx <= RADIUS; dx++) {
-              if (dx === 0 && dy === 0 && dz === 0) continue;
-              const nx = x + dx, ny = y + dy, nz = z + dz;
-              if (!inBounds(nx, ny, nz, c)) continue;
-              if (getStone(b, nx, ny, nz, c) !== Stone.EMPTY) continue;
-              const idx = nz * c.sizeY * c.sizeX + ny * c.sizeX + nx;
-              if (seen.has(idx)) continue;
-              seen.add(idx);
+        if (getStone(board, x, y, z, c) === Stone.EMPTY) continue;
+        for (const dir of DIRECTIONS) {
+          for (const sign of [-1, 1]) {
+            for (let distance = 1; distance <= radius; distance++) {
+              const nx = x + dir.x * distance * sign;
+              const ny = y + dir.y * distance * sign;
+              const nz = z + dir.z * distance * sign;
+              if (!inBounds(nx, ny, nz, c)) break;
+              if (getStone(board, nx, ny, nz, c) !== Stone.EMPTY) continue;
+              const index = indexOf(nx, ny, nz, c);
+              if (seen.has(index)) continue;
+              seen.add(index);
               candidates.push({ x: nx, y: ny, z: nz });
             }
           }
@@ -232,406 +337,287 @@ function getCandidates(b: number[], c: BoardConfig): Vec3[] {
   }
 
   if (candidates.length === 0) {
-    const cx = Math.floor(c.sizeX / 2), cy = Math.floor(c.sizeY / 2), cz = Math.floor(c.sizeZ / 2);
-    candidates.push({ x: cx, y: cy, z: cz });
+    candidates.push({
+      x: Math.floor(c.sizeX / 2),
+      y: Math.floor(c.sizeY / 2),
+      z: Math.floor(c.sizeZ / 2),
+    });
   }
-
   return candidates;
 }
 
-/**
- * Scored candidate with detailed evaluation.
- */
-interface ScoredMove {
-  pos: Vec3;
-  score: number;
-  attack: number;
-  defend: number;
-}
-
-/**
- * Score and rank candidates. Returns top N for deeper search.
- */
 function scoreCandidates(
-  b: number[], c: BoardConfig,
-  candidates: Vec3[],
-  aiStone: Stone, oppStone: Stone,
-  memory?: AiMemory,
+  board: number[], c: BoardConfig,
+  candidates: Vec3[], color: Stone, opponent: Stone,
 ): ScoredMove[] {
-  const scored: ScoredMove[] = [];
-
-  for (const pos of candidates) {
-    const ev = evaluateMove(b, c, pos.x, pos.y, pos.z, aiStone, oppStone);
-    let score = ev.total;
-    if (memory) score += memory.query(b, c, pos.x, pos.y, pos.z) * 0.3;
-    scored.push({ pos, score, attack: ev.attack, defend: ev.defend });
-  }
-
-  scored.sort((a, b_) => b_.score - a.score);
-  return scored;
+  return candidates.map((pos) => ({ pos, ...evaluateMove(board, c, pos, color, opponent) }))
+    .sort((a, b) => {
+      const byScore = b.total - a.total;
+      if (byScore !== 0) return byScore;
+      const byCenter = centerDistance(a.pos, c) - centerDistance(b.pos, c);
+      return byCenter !== 0 ? byCenter : posKey(a.pos).localeCompare(posKey(b.pos));
+    });
 }
 
-/**
- * Check if placing `color` at (x,y,z) creates a win.
- */
-function isWinningMove(b: number[], c: BoardConfig, x: number, y: number, z: number, color: Stone): boolean {
-  for (const dir of DIRECTIONS) {
-    const info = analyzeLine(b, c, x, y, z, dir, color);
-    if (info.count >= c.winLength) return true;
-  }
-  return false;
+function isWinningMove(board: number[], c: BoardConfig, pos: Vec3, color: Stone): boolean {
+  return DIRECTIONS.some((dir) =>
+    analyzeLine(board, c, pos.x, pos.y, pos.z, dir, color).count >= c.winLength);
 }
 
-// ─── 2-ply minimax search ───
-
-/**
- * Minimax with alpha-beta pruning.
- * depth=0: evaluate position
- * depth>0: try all candidate moves, recurse
- */
-function minimax(
-  b: number[], c: BoardConfig,
-  aiStone: Stone, oppStone: Stone,
-  depth: number,
-  alpha: number, beta: number,
-  maximizing: boolean,
-): number {
-  if (depth === 0) {
-    return evaluateBoard(b, c, aiStone) - evaluateBoard(b, c, oppStone);
+function findWinningCells(
+  board: number[], c: BoardConfig, color: Stone, cap = Number.POSITIVE_INFINITY,
+): Vec3[] {
+  const result: Vec3[] = [];
+  for (const pos of getCandidates(board, c)) {
+    if (!isWinningMove(board, c, pos, color)) continue;
+    result.push(pos);
+    if (result.length >= cap) break;
   }
-
-  const currentStone = maximizing ? aiStone : oppStone;
-  const opponentStone = maximizing ? oppStone : aiStone;
-  const candidates = getCandidates(b, c);
-
-  // Score and sort candidates for better pruning
-  type Scored = { pos: Vec3; score: number };
-  const scored: Scored[] = candidates.map(pos => {
-    const ev = evaluateMove(b, c, pos.x, pos.y, pos.z, currentStone, opponentStone);
-    return { pos, score: ev.total };
-  });
-  scored.sort((a, b_) => b_.score - a.score);
-
-  // Search more candidates for better play quality
-  const searchLimit = depth >= 3 ? 6 : depth >= 2 ? 12 : 20;
-  const topMoves = scored.slice(0, Math.min(searchLimit, scored.length));
-
-  if (maximizing) {
-    let best = -Infinity;
-    for (const m of topMoves) {
-      // Check for immediate win
-      if (isWinningMove(b, c, m.pos.x, m.pos.y, m.pos.z, aiStone)) return 500000;
-
-      const sim = [...b];
-      setStone(sim, m.pos.x, m.pos.y, m.pos.z, c, aiStone);
-      const val = minimax(sim, c, aiStone, oppStone, depth - 1, alpha, beta, false);
-      best = Math.max(best, val);
-      alpha = Math.max(alpha, val);
-      if (beta <= alpha) break;
-    }
-    return best;
-  } else {
-    let best = Infinity;
-    for (const m of topMoves) {
-      if (isWinningMove(b, c, m.pos.x, m.pos.y, m.pos.z, oppStone)) return -500000;
-
-      const sim = [...b];
-      setStone(sim, m.pos.x, m.pos.y, m.pos.z, c, oppStone);
-      const val = minimax(sim, c, aiStone, oppStone, depth - 1, alpha, beta, true);
-      best = Math.min(best, val);
-      beta = Math.min(beta, val);
-      if (beta <= alpha) break;
-    }
-    return best;
-  }
+  return result;
 }
 
-// ─── Main AI entry points ───
-
-/**
- * Check if the AI can win with its remaining stones this turn.
- * Tries all single-stone wins first, then all two-stone combinations.
- * Returns the winning moves immediately if found.
- */
 function findImmediateWin(
-  b: number[], c: BoardConfig,
-  aiStone: Stone, stonesToPlace: number,
+  board: number[], c: BoardConfig,
+  color: Stone, opponent: Stone, stonesToPlace: number,
 ): Vec3[] | null {
-  const candidates = getCandidates(b, c);
+  const singleWins = findWinningCells(board, c, color, 1);
+  if (singleWins.length > 0) return [singleWins[0]];
+  if (stonesToPlace < 2) return null;
 
-  // Single stone win
-  if (stonesToPlace >= 1) {
-    for (const pos of candidates) {
-      if (isWinningMove(b, c, pos.x, pos.y, pos.z, aiStone)) {
-        return [pos];
-      }
-    }
+  const firstMoves = scoreCandidates(board, c, getCandidates(board, c), color, opponent)
+    .sort((a, b) => b.attack - a.attack)
+    .slice(0, 48);
+
+  for (const first of firstMoves) {
+    const afterFirst = [...board];
+    setStone(afterFirst, first.pos, c, color);
+    const secondWins = findWinningCells(afterFirst, c, color, 1);
+    if (secondWins.length > 0) return [first.pos, secondWins[0]];
   }
-
-  // Two stone win: place first stone anywhere, check if second wins
-  if (stonesToPlace >= 2) {
-    for (const first of candidates) {
-      const sim = [...b];
-      setStone(sim, first.x, first.y, first.z, c, aiStone);
-      // After placing first stone, check if any second stone wins
-      const secondCandidates = getCandidates(sim, c);
-      for (const second of secondCandidates) {
-        if (isWinningMove(sim, c, second.x, second.y, second.z, aiStone)) {
-          return [first, second];
-        }
-      }
-    }
-  }
-
   return null;
 }
 
-export function computeAiMove(req: AiRequestPayload): AiResponsePayload {
-  const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
-  if (currentPlayer !== aiColor) return { moves: [] };
-
-  const aiStone = aiColor as unknown as Stone;
-  const oppStone = (aiColor === Player.BLACK ? Player.WHITE : Player.BLACK) as unknown as Stone;
-  const workingBoard = [...board];
-
-  // First check: can we win immediately?
-  const winMoves = findImmediateWin(workingBoard, config, aiStone, stonesToPlace);
-  if (winMoves) return { moves: winMoves };
-
-  // Second check: do we have a guaranteed win (two open-5 threats)?
-  // If so, skip defensive blocking — just build toward the win.
-  const guaranteed = hasGuaranteedWin(workingBoard, config, aiStone, oppStone);
-
-  const moves: Vec3[] = [];
-  for (let m = 0; m < stonesToPlace; m++) {
-    const move = pickBestMove(workingBoard, config, aiStone, oppStone, undefined, guaranteed);
-    if (!move) break;
-    moves.push(move);
-    setStone(workingBoard, move.x, move.y, move.z, config, aiStone);
+function mergeUniquePositions(...groups: Vec3[][]): Vec3[] {
+  const result: Vec3[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const pos of group) {
+      const key = posKey(pos);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(pos);
+    }
   }
-
-  return { moves };
+  return result;
 }
 
-export function computeAiMoveWithMemory(
-  req: AiRequestPayload, memory: AiMemory,
-): AiResponsePayload {
-  const { board, config, aiColor, currentPlayer, stonesToPlace } = req;
-  if (currentPlayer !== aiColor) return { moves: [] };
-
-  const aiStone = aiColor as unknown as Stone;
-  const oppStone = (aiColor === Player.BLACK ? Player.WHITE : Player.BLACK) as unknown as Stone;
-  const workingBoard = [...board];
-
-  // First check: can we win immediately?
-  const winMoves = findImmediateWin(workingBoard, config, aiStone, stonesToPlace);
-  if (winMoves) return { moves: winMoves };
-
-  // Second check: guaranteed win (two open-5 threats)?
-  const guaranteed = hasGuaranteedWin(workingBoard, config, aiStone, oppStone);
-
-  // Normal play with memory
-  const moves: Vec3[] = [];
-  for (let m = 0; m < stonesToPlace; m++) {
-    const move = pickBestMove(workingBoard, config, aiStone, oppStone, memory, guaranteed);
-    if (!move) break;
-    moves.push(move);
-    setStone(workingBoard, move.x, move.y, move.z, config, aiStone);
-  }
-
-  return { moves };
+function evaluatePosition(
+  board: number[], c: BoardConfig, color: Stone, opponent: Stone,
+): number {
+  const ownWins = findWinningCells(board, c, color, 4).length;
+  const opponentWins = findWinningCells(board, c, opponent, 4).length;
+  return evaluateBoard(board, c, color)
+    - evaluateBoard(board, c, opponent) * 1.1
+    + ownWins * 14_000_000
+    - opponentWins * 18_000_000;
 }
 
-/**
- * Find urgent blocking moves — cells where opponent threatens to win or create unstoppable threats.
- * Returns the best blocking move, or null if no urgent block needed.
- */
-function findUrgentBlock(
-  b: number[], c: BoardConfig,
-  candidates: Vec3[],
-  aiStone: Stone, oppStone: Stone,
-): Vec3 | null {
-  let bestBlock: Vec3 | null = null;
-  let bestBlockScore = 0;
+function turnKey(moves: Vec3[]): string {
+  return moves.map(posKey).sort().join("|");
+}
 
-  for (const pos of candidates) {
-    // Evaluate what the opponent achieves here
-    let oppThreatScore = 0;
+function generatePairCandidates(
+  board: number[], c: BoardConfig,
+  color: Stone, opponent: Stone,
+  limits: PairLimits,
+): TurnCandidate[] {
+  const candidates = getCandidates(board, c);
+  if (candidates.length === 0) return [];
 
-    for (const dir of DIRECTIONS) {
-      const info = analyzeLine(b, c, pos.x, pos.y, pos.z, dir, oppStone);
-      if (info.openEnds === 0) continue;
+  const originalOpponentWins = findWinningCells(board, c, opponent, 8);
+  const originalWinKeys = new Set(originalOpponentWins.map(posKey));
+  const firstScored = scoreCandidates(board, c, candidates, color, opponent);
+  const firstPool = mergeUniquePositions(
+    originalOpponentWins,
+    firstScored.slice(0, limits.first).map((move) => move.pos),
+  );
+  const firstScores = new Map(firstScored.map((move) => [posKey(move.pos), move.total]));
+  const results: TurnCandidate[] = [];
+  const seenPairs = new Set<string>();
 
-      // Prioritize by danger level
-      if (info.count >= c.winLength) {
-        // Opponent wins here — absolute must-block
-        return pos;
-      }
-      if (info.count === c.winLength - 1 && info.openEnds >= 1) {
-        // Half-open or open 5 — very urgent
-        oppThreatScore += info.openEnds === 2 ? 8000 : 5000;
-      }
-      if (info.count === c.winLength - 2 && info.openEnds === 2) {
-        // Open 4 — urgent, creates forcing sequence
-        oppThreatScore += 2000;
-      }
-      if (info.count === c.winLength - 2 && info.openEnds === 1) {
-        // Half-open 4 — still dangerous
-        oppThreatScore += 800;
-      }
-      if (info.count === c.winLength - 3 && info.openEnds === 2) {
-        // Open 3 — building threat
-        oppThreatScore += 300;
+  for (const first of firstPool) {
+    const afterFirst = [...board];
+    setStone(afterFirst, first, c, color);
+    const secondCandidates = getCandidates(afterFirst, c);
+
+    if (secondCandidates.length === 0) {
+      results.push({
+        moves: [first],
+        board: afterFirst,
+        heuristic: firstScores.get(posKey(first)) ?? 0,
+        winsNow: false,
+        ownWinsNext: 0,
+        opponentWinsNext: 0,
+      });
+      continue;
+    }
+
+    const opponentWinsAfterFirst = findWinningCells(afterFirst, c, opponent, 8);
+    const secondScored = scoreCandidates(afterFirst, c, secondCandidates, color, opponent);
+    const secondPool = mergeUniquePositions(
+      opponentWinsAfterFirst,
+      secondScored.slice(0, limits.second).map((move) => move.pos),
+    );
+    const secondScores = new Map(secondScored.map((move) => [posKey(move.pos), move.total]));
+
+    for (const second of secondPool) {
+      const pairKey = turnKey([first, second]);
+      if (seenPairs.has(pairKey)) continue;
+      seenPairs.add(pairKey);
+
+      const winsNow = isWinningMove(afterFirst, c, second, color);
+      const afterPair = [...afterFirst];
+      setStone(afterPair, second, c, color);
+      const ownWinsNext = winsNow ? 4 : findWinningCells(afterPair, c, color, 4).length;
+      const opponentWinsNext = findWinningCells(afterPair, c, opponent, 4).length;
+      const blockedOriginal = Number(originalWinKeys.has(posKey(first)))
+        + Number(originalWinKeys.has(posKey(second)));
+      const unblockedOriginal = Math.max(0, originalOpponentWins.length - blockedOriginal);
+      const positionBalance = evaluateBoard(afterPair, c, color)
+        - evaluateBoard(afterPair, c, opponent) * 1.1;
+      const heuristic = (firstScores.get(posKey(first)) ?? 0)
+        + (secondScores.get(posKey(second)) ?? 0) * 1.08
+        + positionBalance * 0.08
+        + ownWinsNext * 13_000_000
+        - opponentWinsNext * 22_000_000
+        + blockedOriginal * 20_000_000
+        - unblockedOriginal * 30_000_000
+        + (winsNow ? WIN_SCORE : 0);
+
+      results.push({
+        moves: [first, second],
+        board: afterPair,
+        heuristic,
+        winsNow,
+        ownWinsNext,
+        opponentWinsNext,
+      });
+    }
+  }
+
+  return results.sort((a, b) => {
+    const byScore = b.heuristic - a.heuristic;
+    return byScore !== 0 ? byScore : turnKey(a.moves).localeCompare(turnKey(b.moves));
+  }).slice(0, limits.maxPairs);
+}
+
+function chooseBestPair(
+  board: number[], c: BoardConfig,
+  color: Stone, opponent: Stone,
+): Vec3[] | null {
+  const roots = generatePairCandidates(
+    board, c, color, opponent,
+    { first: 12, second: 8, maxPairs: 20 },
+  );
+  if (roots.length === 0) return null;
+  if (roots[0].winsNow) return roots[0].moves;
+
+  let best = roots[0];
+  let bestValue = -Infinity;
+
+  for (const root of roots.slice(0, ROOT_REPLY_WIDTH)) {
+    if (root.ownWinsNext >= 3 && root.opponentWinsNext === 0) return root.moves;
+
+    const replies = generatePairCandidates(
+      root.board, c, opponent, color,
+      { first: 4, second: 3, maxPairs: 8 },
+    );
+    let worstReply = evaluatePosition(root.board, c, color, opponent);
+
+    if (replies.length > 0) {
+      worstReply = Infinity;
+      for (const reply of replies) {
+        const value = reply.winsNow
+          ? -WIN_SCORE
+          : evaluatePosition(reply.board, c, color, opponent);
+        worstReply = Math.min(worstReply, value);
       }
     }
 
-    if (oppThreatScore > bestBlockScore) {
-      bestBlockScore = oppThreatScore;
-      bestBlock = pos;
+    const value = worstReply + root.heuristic * 0.06;
+    if (value > bestValue || (value === bestValue && turnKey(root.moves) < turnKey(best.moves))) {
+      bestValue = value;
+      best = root;
     }
   }
 
-  // Only block if the threat is significant
-  return bestBlockScore >= 500 ? bestBlock : null;
+  return best.moves;
 }
 
-/**
- * Check if AI has a guaranteed win next turn (e.g., two open-5 threats).
- * If so, any move that preserves both threats is winning — no need to block.
- */
-function hasGuaranteedWin(
-  b: number[], c: BoardConfig,
-  aiStone: Stone, oppStone: Stone,
-): boolean {
-  const threats = countThreats(b, c, aiStone, oppStone);
-  // Two or more open-5 threats = unstoppable (opponent can only block one)
-  return threats.open5 >= 2;
-}
-
-/**
- * Main move selection with threat-based priority + minimax search.
- */
-function pickBestMove(
-  b: number[], c: BoardConfig,
-  aiStone: Stone, oppStone: Stone,
-  memory?: AiMemory,
-  skipBlock = false,
+function chooseBestSingle(
+  board: number[], c: BoardConfig,
+  color: Stone, opponent: Stone,
 ): Vec3 | null {
-  const candidates = getCandidates(b, c);
+  const candidates = getCandidates(board, c);
   if (candidates.length === 0) return null;
 
-  // ── Phase 1: Check for immediate wins ──
-  for (const pos of candidates) {
-    if (isWinningMove(b, c, pos.x, pos.y, pos.z, aiStone)) return pos;
-  }
+  const opponentWins = findWinningCells(board, c, opponent, 8);
+  const pool = opponentWins.length > 0 ? opponentWins : candidates;
+  const scored = scoreCandidates(board, c, pool, color, opponent).slice(0, 14);
+  let best = scored[0]?.pos ?? candidates[0];
+  let bestValue = -Infinity;
 
-  // ── Phase 2: Block opponent's immediate wins (unless we have guaranteed win) ──
-  const oppWinMoves = candidates.filter(pos => isWinningMove(b, c, pos.x, pos.y, pos.z, oppStone));
-  if (!skipBlock) {
-    if (oppWinMoves.length === 1) return oppWinMoves[0];
-
-    // ── Phase 2.5: Find urgent blocking moves ──
-    const urgentBlock = findUrgentBlock(b, c, candidates, aiStone, oppStone);
-    if (urgentBlock) {
-      const myThreats = countThreats(b, c, aiStone, oppStone);
-      if (myThreats.winMoves > 0 || myThreats.doubleThreat) {
-        const oppThreats = countThreats(b, c, oppStone, aiStone);
-        if (oppThreats.winMoves > 0 || oppThreats.open5 > 0 || oppThreats.open4 > 0) {
-          return urgentBlock;
-        }
-      } else {
-        return urgentBlock;
-      }
+  for (const move of scored) {
+    const simulated = [...board];
+    setStone(simulated, move.pos, c, color);
+    const value = evaluatePosition(simulated, c, color, opponent) + move.total * 0.08;
+    if (value > bestValue) {
+      bestValue = value;
+      best = move.pos;
     }
   }
-
-  // ── Phase 3: Score and rank all candidates ──
-  const scored = scoreCandidates(b, c, candidates, aiStone, oppStone, memory);
-
-  // Bonus for blocking opponent's multiple winning moves
-  if (oppWinMoves.length > 1) {
-    for (const s of scored) {
-      if (oppWinMoves.some(p => p.x === s.pos.x && p.y === s.pos.y && p.z === s.pos.z)) {
-        s.score += 100000;
-      }
-    }
-    scored.sort((a, b_) => b_.score - a.score);
-  }
-
-  // ── Phase 4: Threat analysis ──
-  const myThreats = countThreats(b, c, aiStone, oppStone);
-  const oppThreats = countThreats(b, c, oppStone, aiStone);
-
-  // Create double threat
-  if (myThreats.doubleThreat && myThreats.doubleThreatPos) {
-    const dt = myThreats.doubleThreatPos;
-    if (candidates.some(p => p.x === dt.x && p.y === dt.y && p.z === dt.z)) {
-      return dt;
-    }
-  }
-
-  // Block opponent's double threat
-  if (oppThreats.doubleThreat && oppThreats.doubleThreatPos) {
-    const blockers = scored.filter(s => {
-      const sim = [...b];
-      setStone(sim, s.pos.x, s.pos.y, s.pos.z, c, aiStone);
-      const newOpp = countThreats(sim, c, oppStone, aiStone);
-      return newOpp.open4 < oppThreats.open4;
-    });
-    if (blockers.length > 0) {
-      blockers.sort((a, b_) => b_.score - a.score);
-      return blockers[0].pos;
-    }
-  }
-
-  // ── Phase 5: Minimax on top candidates ──
-  const topN = scored.slice(0, Math.min(15, scored.length));
-
-  // If top candidate is overwhelmingly good, take it
-  if (topN.length > 0 && topN[0].score > 10000) return topN[0].pos;
-
-  let bestMove = topN[0]?.pos || scored[0]?.pos || candidates[0];
-  let bestEval = -Infinity;
-
-  for (const candidate of topN) {
-    const sim = [...b];
-    setStone(sim, candidate.pos.x, candidate.pos.y, candidate.pos.z, c, aiStone);
-
-    // 3-ply minimax for deeper analysis
-    const eval_ = minimax(sim, c, aiStone, oppStone, 3, -Infinity, Infinity, false);
-    const combined = eval_ + candidate.score * 0.05;
-
-    if (combined > bestEval) {
-      bestEval = combined;
-      bestMove = candidate.pos;
-    }
-  }
-
-  // Safety fallback: if somehow no move was picked, take any empty cell
-  if (!bestMove) {
-    for (let z = 0; z < c.sizeZ; z++) {
-      for (let y = 0; y < c.sizeY; y++) {
-        for (let x = 0; x < c.sizeX; x++) {
-          if (getStone(b, x, y, z, c) === Stone.EMPTY) return { x, y, z };
-        }
-      }
-    }
-  }
-
-  return bestMove;
+  return best;
 }
 
-// Backward compatibility export
+export function computeAiMove(request: AiRequestPayload): AiResponsePayload {
+  const { board, config, aiColor, currentPlayer, stonesToPlace } = request;
+  const expectedSize = config.sizeX * config.sizeY * config.sizeZ;
+  if (currentPlayer !== aiColor || stonesToPlace <= 0 || board.length !== expectedSize) {
+    return { moves: [] };
+  }
+  if (!board.some((stone) => stone === Stone.EMPTY)) return { moves: [] };
+
+  const color = aiColor as unknown as Stone;
+  const opponent = opposite(color);
+  const workingBoard = [...board];
+
+  // Deterministic central opening maximizes the 13-direction option space.
+  if (countStones(workingBoard) === 0) {
+    return { moves: [getCandidates(workingBoard, config)[0]] };
+  }
+
+  const win = findImmediateWin(workingBoard, config, color, opponent, stonesToPlace);
+  if (win) return { moves: win.slice(0, stonesToPlace) };
+
+  if (stonesToPlace >= 2) {
+    const pair = chooseBestPair(workingBoard, config, color, opponent);
+    if (pair) return { moves: pair.slice(0, stonesToPlace) };
+  }
+
+  const move = chooseBestSingle(workingBoard, config, color, opponent);
+  return { moves: move ? [move] : [] };
+}
+
+/** Highest directional tactical value for training analysis and diagnostics. */
 export function scoreCell(
   board: number[], config: BoardConfig,
   x: number, y: number, z: number,
   color: Stone,
 ): number {
+  if (!inBounds(x, y, z, config) || getStone(board, x, y, z, config) !== Stone.EMPTY) return 0;
   let best = 0;
   for (const dir of DIRECTIONS) {
-    const info = analyzeLine(board, config, x, y, z, dir, color);
-    const s = lineScore(info.count, info.openEnds, config.winLength);
-    if (s > best) best = s;
+    best = Math.max(best, directionPatternScore(board, config, x, y, z, dir, color));
   }
   return best;
 }
