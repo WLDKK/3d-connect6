@@ -64,7 +64,6 @@ export enum MsgType {
   TIMER = "timer",
   RESET_REQUEST = "reset_request",
   RESET_CONFIRM = "reset_confirm",
-  RESET_REJECT = "reset_reject",
   RESET_ACK = "reset_ack",
   READY = "ready",
   GAME_START = "game_start",
@@ -113,7 +112,6 @@ export interface ResetRequestPayload {
 export interface ResetAckPayload {
   /** true = reset executed, false = cancelled */
   success: boolean;
-  reason?: "rejected" | "timeout";
 }
 
 // ─── AI Interface Contract ───

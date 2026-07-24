@@ -71,28 +71,22 @@ export class Connect6Engine {
     return this.state.board[this.idx(x, y, z)];
   }
 
-  /** Coordinates received from UI/network must be finite integer grid cells. */
-  private hasValidCoordinates(x: number, y: number, z: number): boolean {
-    return Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(z);
-  }
-
-  /** Centralized legality check shared by the engine, UI and server callers. */
-  isLegalMove(x: number, y: number, z: number): boolean {
-    if (this.state.winner !== Stone.EMPTY || this.isDraw()) return false;
-    if (!this.hasValidCoordinates(x, y, z)) return false;
-    if (!this.inBounds(x, y, z)) return false;
-    if (this.getStone(x, y, z) !== Stone.EMPTY) return false;
-
-    const maxStones = this.state.round === 0 ? 1 : 2;
-    if (this.state.round === 0 && this.state.currentPlayer !== Player.BLACK) return false;
-    return this.state.stonesPlacedThisTurn < maxStones;
-  }
-
   // ─── Core game logic ───
 
   /** Returns true if move was legal and applied */
   placeStone(x: number, y: number, z: number): boolean {
-    if (!this.isLegalMove(x, y, z)) return false;
+    if (this.state.winner !== Stone.EMPTY) return false;
+    if (!this.inBounds(x, y, z)) return false;
+    if (this.getStone(x, y, z) !== Stone.EMPTY) return false;
+
+    // Round 0: black places exactly 1 stone
+    if (this.state.round === 0) {
+      if (this.state.currentPlayer !== Player.BLACK) return false;
+      if (this.state.stonesPlacedThisTurn >= 1) return false;
+    } else {
+      // Normal rounds: each player places 2 stones
+      if (this.state.stonesPlacedThisTurn >= 2) return false;
+    }
 
     const stone = this.state.currentPlayer as unknown as Stone;
     this.state.board[this.idx(x, y, z)] = stone;
@@ -228,11 +222,6 @@ export class Connect6Engine {
   /** Check if the board is completely full (draw condition) */
   isBoardFull(): boolean {
     return this.state.board.every((s) => s !== Stone.EMPTY);
-  }
-
-  /** A full board without a winner is a draw, including a partial final turn. */
-  isDraw(): boolean {
-    return this.state.winner === Stone.EMPTY && this.isBoardFull();
   }
 
   /** Get all legal move positions */

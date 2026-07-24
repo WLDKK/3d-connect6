@@ -1,4 +1,7 @@
-import { Suspense, lazy, useCallback, useState, useEffect, useRef } from "react";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import { Suspense, useCallback, useState, useEffect, useRef } from "react";
+import { GameScene } from "./components/GameScene";
 import { ControlPanel } from "./components/ControlPanel";
 import { SliceMonitor } from "./components/SliceMonitor";
 import { Lobby, RoomStatus } from "./components/Lobby";
@@ -9,24 +12,16 @@ import { AiController } from "./components/AiController";
 import { TrainingAnalysis } from "./components/TrainingAnalysis";
 import { ReplayControls } from "./components/ReplayControls";
 import { CoordInput } from "./components/CoordInput";
+import { CameraDirectionTracker } from "./components/CameraDirectionTracker";
 import { useReplayState, useReplayActions, updateReplayMoves, getReplayBoard, resetReplay } from "./hooks/useReplayStore";
 import { Player, Stone, type StatePayload, type ColorChoice, type Vec3 } from "@connect6/shared";
 
 import { WS_BASE } from "./config";
 
-const GameBoard = lazy(() => import("./components/GameBoard"));
-
-function randomPlayer(): Player.BLACK | Player.WHITE {
-  return crypto.getRandomValues(new Uint8Array(1))[0] < 128
-    ? Player.BLACK
-    : Player.WHITE;
-}
-
-function HUD({ mode, aiThinking, onResetRequest, gameMode, interactionHint }: {
+function HUD({ mode, aiThinking, onResetRequest, gameMode }: {
   mode: "local" | "online"; aiThinking: boolean;
   onResetRequest: () => void;
   gameMode: "normal" | "training" | "dual_ai";
-  interactionHint: string;
 }) {
   const snapshot = useGameSnapshot();
   const { reset } = useGameActions();
@@ -41,10 +36,9 @@ function HUD({ mode, aiThinking, onResetRequest, gameMode, interactionHint }: {
 
   const isBlack = snapshot.currentPlayer === Player.BLACK;
   const playerName = isBlack ? "黑方" : "白方";
-  const stoneCount = snapshot.board.reduce((n, s) => s !== 0 ? n + 1 : n, 0);
-  const isDraw = snapshot.winner === Stone.EMPTY && stoneCount === snapshot.board.length;
-  const isGameOver = snapshot.winner !== Stone.EMPTY || isDraw;
+  const isGameOver = snapshot.winner !== Stone.EMPTY;
   const winnerName = snapshot.winner === Player.BLACK ? "黑方" : snapshot.winner === Player.WHITE ? "白方" : "";
+  const stoneCount = snapshot.board.reduce((n, s) => s !== 0 ? n + 1 : n, 0);
 
   const handleResetClick = () => {
     if (isGameOver && mode === "online") {
@@ -72,17 +66,16 @@ function HUD({ mode, aiThinking, onResetRequest, gameMode, interactionHint }: {
   };
 
   return (
-    <div className={`game-hud game-hud-card absolute top-4 left-4 ${accent} font-mono text-sm pointer-events-none select-none`}>
-      <p className={`text-[9px] tracking-[0.24em] uppercase ${accentMuted}`}>Connect6 · Spatial</p>
-      <h1 className="text-xl font-semibold tracking-[0.08em] mt-0.5 mb-1">3D 六子棋</h1>
+    <div className={`absolute top-4 left-4 ${accent} font-mono text-sm pointer-events-none select-none`}>
+      <h1 className="text-2xl font-bold tracking-wider mb-1">3D 六子棋</h1>
       <p className={`text-[10px] ${accentMuted} mb-2`}>
         {gameMode === "training" ? "训练" : gameMode === "dual_ai" ? "AI 对抗" : mode === "local" ? "单机" : "多人"}
-        {gameMode !== "training" && " · 本地竞技引擎"}
+        {gameMode !== "training" && " · 贪心Pro"}
         {" · 棋子 "}{stoneCount}
       </p>
       {isGameOver ? (
         <div>
-          <p className="text-lg text-yellow-400 font-bold">{isDraw ? "棋盘已满，和棋" : `${winnerName} 获胜！`}</p>
+          <p className="text-lg text-yellow-400 font-bold">{winnerName} 获胜！</p>
           <button
             className="mt-2 px-3 py-1 bg-cyber-grid text-cyber-accent text-xs rounded pointer-events-auto hover:bg-opacity-80"
             onClick={handleResetClick}
@@ -93,13 +86,12 @@ function HUD({ mode, aiThinking, onResetRequest, gameMode, interactionHint }: {
       ) : (
         <div>
           <p className={`text-xs ${accentDim}`}>
-            第 {snapshot.round} 回合 · <span className={`turn-stone ${isBlack ? "turn-stone-black" : "turn-stone-white"}`} />{playerName}
+            第 {snapshot.round} 回合 · {isBlack ? "⚫" : "⚪"}{playerName}
           </p>
           <p className={`text-sm font-bold ${isDark ? (isBlack ? "text-gray-300" : "text-white") : (isBlack ? "text-gray-800" : "text-black")}`}>
             {aiThinking ? "AI 思考中..." : `${playerName}落子`}
             {snapshot.round > 0 && `（本回合剩余 ${2 - snapshot.stonesPlacedThisTurn} 枚）`}
           </p>
-          <p className={`mt-1 text-[10px] ${accentMuted}`}>{interactionHint}</p>
           <button
             className="mt-1.5 px-2 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded pointer-events-auto hover:bg-red-900/50 transition-colors"
             onClick={handleResetClick}
@@ -175,28 +167,26 @@ function GameContent({ roomId, aiColor, gameMode, trainingAnalyze, onBack }: {
   onBack: () => void;
 }) {
   const snapshot = useGameSnapshot();
-  const { reset, placeStone } = useGameActions();
+  const { reset } = useGameActions();
   const [previewCoords, setPreviewCoords] = useState<{ x: number; y: number; z: number } | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [waitingReset, setWaitingReset] = useState(false);
   const [waitingReady, setWaitingReady] = useState(false);
 
-  const { sendResetRequest, sendResetConfirm, sendResetReject, sendReady } = useWebSocketActions();
-  const { pendingReset, lastResetAck, showReadyDialog, timer, movePending, playerColor, status: connectionStatus } = useWebSocketState();
+  const { sendResetRequest, sendResetConfirm, sendReady } = useWebSocketActions();
+  const { pendingReset, showReadyDialog, timer } = useWebSocketState();
   const replayState = useReplayState();
   const { goLatest } = useReplayActions();
 
   useEffect(() => { updateReplayMoves(snapshot.moves); }, [snapshot.moves]);
 
   const replayBoard = !replayState.isLive ? getReplayBoard(snapshot, replayState.viewIndex) : null;
-  const hasWinner = snapshot.winner !== Stone.EMPTY;
-  const isDraw = !hasWinner && snapshot.board.every((stone) => stone !== Stone.EMPTY);
-  const isGameOver = hasWinner || isDraw;
+  const isGameOver = snapshot.winner !== Stone.EMPTY;
 
   useEffect(() => { if (pendingReset) setShowResetDialog(true); }, [pendingReset]);
   useEffect(() => { if (timer) setWaitingReady(false); }, [timer]);
-  useEffect(() => { if (lastResetAck) setWaitingReset(false); }, [lastResetAck]);
+  useEffect(() => { if (!pendingReset) setWaitingReset(false); }, [pendingReset]);
 
   const handleResetRequest = useCallback(() => {
     if (!roomId) { reset(); return; }
@@ -209,14 +199,7 @@ function GameContent({ roomId, aiColor, gameMode, trainingAnalyze, onBack }: {
     setShowResetDialog(false);
   }, [sendResetConfirm]);
 
-  const handleResetCancel = useCallback(() => {
-    sendResetReject();
-    setShowResetDialog(false);
-  }, [sendResetReject]);
-  const handleResetWithdraw = useCallback(() => {
-    sendResetReject();
-    setWaitingReset(false);
-  }, [sendResetReject]);
+  const handleResetCancel = useCallback(() => { setShowResetDialog(false); }, []);
   const handleReady = useCallback(() => { sendReady(); setWaitingReady(true); }, [sendReady]);
 
   const [showBackConfirm, setShowBackConfirm] = useState(false);
@@ -224,87 +207,51 @@ function GameContent({ roomId, aiColor, gameMode, trainingAnalyze, onBack }: {
   const bgColor = theme === "dark" ? "#0a0e17" : "#f5f0e6";
   const bgClass = theme === "dark" ? "bg-cyber-bg" : "bg-gray-100";
 
-  const isReplay = !replayState.isLive;
-  const onlineLocked = Boolean(roomId) && (
-    connectionStatus !== "connected"
-    || showReadyDialog
-    || !timer
-    || movePending
-    || playerColor === null
-    || playerColor !== snapshot.currentPlayer
-  );
-  const aiLocked = gameMode === "dual_ai"
-    || (gameMode === "normal" && aiColor === snapshot.currentPlayer);
-  const interactionDisabled = isGameOver || isReplay || onlineLocked || aiLocked || aiThinking;
-  const interactionHint = isGameOver
-    ? "本局已结束"
-    : isReplay
-      ? "回放中，返回最新局面后可落子"
-      : roomId && playerColor === null
-        ? "当前为观战席"
-        : roomId && connectionStatus !== "connected"
-          ? "正在连接房间"
-          : roomId && movePending
-            ? "正在确认落子"
-          : roomId && (showReadyDialog || !timer)
-            ? "等待双方准备"
-            : onlineLocked
-              ? "等待对手落子"
-              : aiLocked || aiThinking
-                ? "AI 正在思考"
-                : "点击棋盘或输入坐标落子";
-
-  const handleScenePlace = useCallback((grid: Vec3) => {
-    if (interactionDisabled) return;
-    if (placeStone(grid.x, grid.y, grid.z)) setPreviewCoords(null);
-  }, [interactionDisabled, placeStone]);
-
   return (
-    <div className={`game-shell w-full h-full relative ${bgClass}`}>
+    <div className={`w-full h-full relative ${bgClass}`}>
       {roomId && <MultiplayerSync roomId={roomId} />}
       {gameMode === "normal" && aiColor && (
         <AiController aiColor={aiColor} onThinking={setAiThinking} />
       )}
       {gameMode === "dual_ai" && (
-        <AiController aiColor={snapshot.currentPlayer} onThinking={setAiThinking} />
+        <>
+          <AiController aiColor={Player.BLACK} onThinking={setAiThinking} />
+          <AiController aiColor={Player.WHITE} onThinking={setAiThinking} />
+        </>
       )}
 
-      <Suspense fallback={(
-        <div className="absolute inset-0 grid place-items-center font-mono text-sm text-cyber-accent/70">
-          正在加载 3D 棋盘…
-        </div>
-      )}>
-        <GameBoard
-          backgroundColor={bgColor}
-          previewCoords={previewCoords}
-          replayBoard={replayBoard}
-          interactionDisabled={interactionDisabled}
-          onPlace={handleScenePlace}
-        />
-      </Suspense>
+      <Canvas
+        camera={{ position: [18, -18, 16], fov: 45, up: [0, 0, 1] }}
+        gl={{ antialias: true, alpha: false }}
+        dpr={[1, 2]}
+        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
+      >
+        <color attach="background" args={[bgColor]} />
+        <fog attach="fog" args={[bgColor, 40, 80]} />
+        <Suspense fallback={null}>
+          <GameScene previewCoords={previewCoords} replayBoard={replayBoard} />
+        </Suspense>
+        <CameraDirectionTracker />
+        <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
+      </Canvas>
 
       <HUD
         mode={roomId ? "online" : "local"}
         aiThinking={aiThinking}
         onResetRequest={handleResetRequest}
         gameMode={gameMode}
-        interactionHint={interactionHint}
       />
-      <div className="game-side-panel absolute top-4 right-4 flex flex-col gap-2">
+      <div className="absolute top-4 right-4 flex flex-col gap-2">
         <ControlPanel />
         <SliceMonitor />
         {gameMode === "training" && trainingAnalyze && <TrainingAnalysis />}
       </div>
-      <CoordInput
-        onPreview={setPreviewCoords}
-        disabled={interactionDisabled}
-        disabledReason={interactionHint}
-      />
+      <CoordInput onPreview={setPreviewCoords} />
       <ReplayControls />
       {roomId && <RoomStatus roomId={roomId} />}
 
       {/* Back button */}
-      <div className="game-back absolute bottom-4 right-4 pointer-events-auto">
+      <div className="absolute bottom-4 right-4 pointer-events-auto">
         <button
           onClick={() => setShowBackConfirm(true)}
           className={`px-3 py-1.5 ${theme === "dark" ? "bg-cyber-grid/70 text-cyber-accent/70 hover:bg-cyber-grid" : "bg-gray-200/70 text-gray-600 hover:bg-gray-200"} backdrop-blur-sm border ${theme === "dark" ? "border-cyber-grid" : "border-gray-300"} rounded-lg font-mono text-xs transition-colors`}
@@ -331,7 +278,7 @@ function GameContent({ roomId, aiColor, gameMode, trainingAnalyze, onBack }: {
             <p className="text-cyber-accent font-mono text-lg mb-2">双方已就位</p>
             {waitingReady ? (
               <>
-                <p className="text-yellow-400 font-mono text-sm mb-6">等待对方确认...</p>
+                <p className="text-yellow-400 font-mono text-sm mb-6">⏳ 等待对方确认...</p>
                 <div className="w-6 h-6 border-2 border-cyber-accent/30 border-t-cyber-accent rounded-full animate-spin mx-auto" />
               </>
             ) : (
@@ -360,7 +307,7 @@ function GameContent({ roomId, aiColor, gameMode, trainingAnalyze, onBack }: {
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/50">
           <div className="bg-black/90 backdrop-blur-md border border-cyber-grid rounded-xl p-6 text-center pointer-events-auto">
             <p className="text-cyber-accent font-mono text-sm mb-4">已发送重置申请，等待对手确认...</p>
-            <button onClick={handleResetWithdraw} className="px-4 py-1.5 bg-cyber-grid text-cyber-accent/70 rounded hover:bg-cyber-grid/80 font-mono text-xs transition-colors">撤回申请</button>
+            <button onClick={() => setWaitingReset(false)} className="px-4 py-1.5 bg-cyber-grid text-cyber-accent/70 rounded hover:bg-cyber-grid/80 font-mono text-xs transition-colors">取消</button>
           </div>
         </div>
       )}
@@ -389,7 +336,7 @@ export default function App() {
   const handleLocalPlay = useCallback((color: ColorChoice) => {
     disconnect(); store.reset(); resetReplay();
     setRoomId(null); setInGame(true); setGameMode("normal");
-    if (color === "random") setAiColor(randomPlayer());
+    if (color === "random") setAiColor(Math.random() < 0.5 ? Player.WHITE : Player.BLACK);
     else setAiColor(color === "black" ? Player.WHITE : Player.BLACK);
   }, [store, disconnect]);
 

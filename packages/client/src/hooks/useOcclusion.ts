@@ -17,8 +17,6 @@ export function useComputeOccluded() {
   const camera = useThree((s) => s.camera);
   const prevHoverRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const prevResultRef = useRef<Set<string>>(new Set());
-  const prevBoardRef = useRef<number[] | null>(null);
-  const prevCameraRef = useRef(new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN));
 
   return useCallback(
     (hoverGrid: { x: number; y: number; z: number } | null, snapshot: SerializedState): Set<string> => {
@@ -33,15 +31,11 @@ export function useComputeOccluded() {
         prevHoverRef.current &&
         prevHoverRef.current.x === hoverGrid.x &&
         prevHoverRef.current.y === hoverGrid.y &&
-        prevHoverRef.current.z === hoverGrid.z &&
-        prevBoardRef.current === snapshot.board &&
-        prevCameraRef.current.equals(camera.position)
+        prevHoverRef.current.z === hoverGrid.z
       ) {
         return prevResultRef.current;
       }
       prevHoverRef.current = hoverGrid;
-      prevBoardRef.current = snapshot.board;
-      prevCameraRef.current.copy(camera.position);
 
       const { sizeX, sizeY, sizeZ } = snapshot.config;
       const board = snapshot.board;

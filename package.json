@@ -9,10 +9,7 @@
   "scripts": {
     "dev": "npm run dev -w packages/client",
     "dev:server": "npm run dev -w packages/server",
-    "build": "npm run build -w packages/shared && npm run build -w packages/client && npm run typecheck -w packages/server",
-    "typecheck": "npm run build -w packages/shared && npm run typecheck -w packages/client && npm run typecheck -w packages/server",
-    "test": "npm test -w packages/shared",
-    "check": "npm test && npm run build",
+    "build": "npm run build -w packages/shared && npm run build -w packages/client",
     "deploy:worker": "npm run deploy -w packages/server",
     "deploy:pages": "npm run build && npx wrangler pages deploy packages/client/dist --project-name connect6",
     "deploy": "npm run deploy:worker && npm run deploy:pages"

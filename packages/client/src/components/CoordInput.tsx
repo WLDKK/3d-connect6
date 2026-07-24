@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Stone } from "@connect6/shared";
+import { Player, Stone, type AiRequestPayload } from "@connect6/shared";
 import { useGameSnapshot, useGameActions } from "../hooks/useGameStore";
+import { useAiWorker } from "../hooks/useAiWorker";
 
 /**
  * Camera-relative directions for keyboard navigation.
@@ -40,17 +41,18 @@ function clamp(v: number, max: number): number {
 
 interface CoordInputProps {
   onPreview: (coords: { x: number; y: number; z: number } | null) => void;
-  disabled?: boolean;
-  disabledReason?: string;
 }
 
-export function CoordInput({ onPreview, disabled = false, disabledReason = "" }: CoordInputProps) {
+export function CoordInput({ onPreview }: CoordInputProps) {
   const snapshot = useGameSnapshot();
   const { placeStone } = useGameActions();
   const { sizeX, sizeY, sizeZ } = snapshot.config;
+  const { compute: computeAi } = useAiWorker();
 
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
+  const [manualMode, setManualMode] = useState(false);
+  const [aiComputing, setAiComputing] = useState(false);
   const cursorRef = useRef({ x: 0, y: 0, z: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<() => void>(() => {});
@@ -64,13 +66,58 @@ export function CoordInput({ onPreview, disabled = false, disabledReason = "" }:
     return snapshot.board[idx] !== Stone.EMPTY;
   }, [snapshot.board, sizeX, sizeY]);
 
+  // Compute AI best move via Web Worker — main thread stays free
+  useEffect(() => {
+    if (manualMode) return;
+    if (snapshot.winner !== Stone.EMPTY) return;
+
+    const stonesToPlace = snapshot.round === 0 ? 1 : 2 - snapshot.stonesPlacedThisTurn;
+    if (stonesToPlace <= 0) return;
+
+    let cancelled = false;
+    setAiComputing(true);
+
+    const req: AiRequestPayload = {
+      board: Array.from(snapshot.board),
+      config: snapshot.config,
+      aiColor: snapshot.currentPlayer as Player,
+      currentPlayer: snapshot.currentPlayer as Player,
+      stonesToPlace,
+    };
+
+    computeAi(req).then((result) => {
+      if (cancelled) return;
+      if (result.moves.length > 0) {
+        const m = result.moves[0];
+        const ux = sizeX - 1 - m.x;
+        const uy = m.y;
+        const uz = m.z;
+        cursorRef.current = { x: ux, y: uy, z: uz };
+        setInput(`${ux},${uy},${uz}`);
+        onPreview(toGrid(ux, uy, uz));
+      }
+      setAiComputing(false);
+    }).catch(() => {
+      if (!cancelled) setAiComputing(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [
+    computeAi,
+    manualMode,
+    onPreview,
+    sizeX,
+    snapshot.board,
+    snapshot.config,
+    snapshot.currentPlayer,
+    snapshot.round,
+    snapshot.stonesPlacedThisTurn,
+    snapshot.winner,
+    toGrid,
+  ]);
+
   const updatePreview = useCallback((ux: number, uy: number, uz: number) => {
     const g = toGrid(ux, uy, uz);
-    if (disabled) {
-      onPreview(null);
-      setError(disabledReason || "当前不可落子");
-      return false;
-    }
     if (snapshot.winner !== Stone.EMPTY) {
       onPreview(null);
       setError("游戏已结束");
@@ -84,7 +131,7 @@ export function CoordInput({ onPreview, disabled = false, disabledReason = "" }:
     setError("");
     onPreview(g);
     return true;
-  }, [disabled, disabledReason, toGrid, isOccupied, snapshot.winner, onPreview]);
+  }, [toGrid, isOccupied, snapshot.winner, onPreview]);
 
   const moveCursor = useCallback((dx: number, dy: number, dz: number) => {
     const c = cursorRef.current;
@@ -94,26 +141,13 @@ export function CoordInput({ onPreview, disabled = false, disabledReason = "" }:
     cursorRef.current = { x: nx, y: ny, z: nz };
     setInput(`${nx},${ny},${nz}`);
     updatePreview(nx, ny, nz);
+    setManualMode(false);
     setError("");
   }, [sizeX, sizeY, sizeZ, updatePreview]);
 
   const handleSubmit = useCallback(() => {
     setError("");
-    if (disabled) {
-      setError(disabledReason || "当前不可落子");
-      return;
-    }
-    const parsed = parseUserCoords(input);
-    if (!parsed) {
-      setError("请输入有效坐标，如 4,5,5");
-      return;
-    }
-    const [ux, uy, uz] = parsed;
-    if (ux < 0 || ux >= sizeX || uy < 0 || uy >= sizeY || uz < 0 || uz >= sizeZ) {
-      setError(`坐标范围：0-${sizeX - 1}, 0-${sizeY - 1}, 0-${sizeZ - 1}`);
-      return;
-    }
-    const c = { x: ux, y: uy, z: uz };
+    const c = cursorRef.current;
     const g = toGrid(c.x, c.y, c.z);
     const idx = g.z * sizeY * sizeX + g.y * sizeX + g.x;
 
@@ -126,17 +160,19 @@ export function CoordInput({ onPreview, disabled = false, disabledReason = "" }:
       return;
     }
 
+    // Reset manual mode BEFORE placing stone so the AI suggestion effect
+    // sees manualMode=false when it fires after the snapshot update
+    setManualMode(false);
     setInput("");
     onPreview(null);
-    if (!placeStone(g.x, g.y, g.z)) setError("此处无法落子");
-  }, [disabled, disabledReason, input, snapshot, sizeX, sizeY, sizeZ, toGrid, placeStone, onPreview]);
+    placeStone(g.x, g.y, g.z);
+  }, [snapshot, sizeY, sizeX, toGrid, placeStone, onPreview]);
 
   submitRef.current = handleSubmit;
 
   // Global keyboard — capture phase
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (disabled) return;
       const target = e.target as HTMLElement;
       const isOurInput = document.activeElement === inputRef.current;
       const isOtherInput = (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") && !isOurInput;
@@ -198,32 +234,27 @@ export function CoordInput({ onPreview, disabled = false, disabledReason = "" }:
 
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [disabled, moveCursor]);
+  }, [moveCursor]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInput(val);
+    setManualMode(true);
     setError("");
 
     const parsed = parseUserCoords(val);
-    if (!parsed) {
-      onPreview(null);
-      if (val.trim()) setError("格式示例：4,5,5");
-      return;
+    if (parsed) {
+      const [ux, uy, uz] = parsed;
+      if (ux >= 0 && ux < sizeX && uy >= 0 && uy < sizeY && uz >= 0 && uz < sizeZ) {
+        cursorRef.current = { x: ux, y: uy, z: uz };
+        updatePreview(ux, uy, uz);
+      }
     }
-    const [ux, uy, uz] = parsed;
-    if (ux >= 0 && ux < sizeX && uy >= 0 && uy < sizeY && uz >= 0 && uz < sizeZ) {
-      cursorRef.current = { x: ux, y: uy, z: uz };
-      updatePreview(ux, uy, uz);
-    } else {
-      onPreview(null);
-      setError("坐标超出棋盘范围");
-    }
-  }, [onPreview, sizeX, sizeY, sizeZ, updatePreview]);
+  }, [sizeX, sizeY, sizeZ, updatePreview]);
 
   return (
-    <div className="coord-input absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-xs w-[min(92vw,560px)]">
-      <div className="surface-panel rounded-xl px-3 py-2 flex flex-wrap items-center justify-center gap-2 shadow-2xl">
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-xs">
+      <div className="bg-black/70 backdrop-blur-sm border border-cyber-grid rounded-lg px-4 py-2 flex items-center gap-2">
         <span className="text-cyber-accent opacity-70">坐标</span>
         <input
           ref={inputRef}
@@ -231,19 +262,16 @@ export function CoordInput({ onPreview, disabled = false, disabledReason = "" }:
           value={input}
           onChange={handleChange}
           placeholder="x,y,z"
-          aria-label="落子坐标"
-          disabled={disabled}
           className="bg-cyber-grid/50 text-white px-2 py-1 rounded w-28 outline-none border border-transparent focus:border-cyber-accent text-center"
         />
         <button
           onClick={handleSubmit}
-          disabled={disabled || input.trim().length === 0}
-          className="px-3 py-1 bg-cyber-accent/20 text-cyber-accent rounded hover:bg-cyber-accent/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="px-3 py-1 bg-cyber-accent/20 text-cyber-accent rounded hover:bg-cyber-accent/30 transition-colors"
         >
           落子
         </button>
-        {error && <span className="text-red-400 ml-1" role="alert">{error}</span>}
-        {disabled && !error && <span className="text-cyber-accent/50 ml-1">{disabledReason}</span>}
+        {error && <span className="text-red-400 ml-1">{error}</span>}
+        {aiComputing && !manualMode && <span className="text-yellow-400/60 ml-1">思考中...</span>}
         <span className="text-cyber-accent/30 ml-2 hidden md:inline">
           ←→左右 ↑↓前后 PgUp/PgDn上下 Enter确认
         </span>

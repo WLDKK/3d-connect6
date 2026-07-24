@@ -18,8 +18,4 @@ export default defineConfig({
       },
     },
   },
-  build: {
-    // The large renderer is intentionally isolated behind GameBoard's lazy boundary.
-    chunkSizeWarningLimit: 1000,
-  },
 });

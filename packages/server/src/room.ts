@@ -17,16 +17,6 @@ interface PlayerMeta {
   color: Player.BLACK | Player.WHITE;
 }
 
-interface SessionState {
-  gameStarted: boolean;
-  colorsAssigned: boolean;
-  turnStartTime: number;
-  turnDeadline: number | null;
-  resetDeadline: number | null;
-  resetConfirmations: Player[];
-  readyPlayers: Player[];
-}
-
 interface TimerPayload {
   currentPlayer: Player;
   remainingMs: number;
@@ -41,14 +31,12 @@ export class GameRoom extends DurableObject {
   private playerWhite: WebSocket | null = null;
   private observers: Set<WebSocket> = new Set();
   private turnStartTime: number = 0;
-  private turnDeadline: number | null = null;
+  private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private resetConfirmations: Set<Player> = new Set();
-  private resetDeadline: number | null = null;
-  /** Provisional seats or assigned colors that clicked "ready". */
-  private readyPlayers: Set<Player> = new Set();
+  private resetTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Players who clicked "ready" */
+  private readyPlayers: Set<WebSocket> = new Set();
   private gameStarted: boolean = false;
-  /** First match is random; later rematches alternate colors for session fairness. */
-  private colorsAssigned: boolean = false;
 
   async fetch(request: Request): Promise<Response> {
     await this.ensureEngine();
@@ -75,55 +63,13 @@ export class GameRoom extends DurableObject {
 
   private async ensureEngine(): Promise<void> {
     if (this.engine) return;
-    const [stored, session] = await Promise.all([
-      this.ctx.storage.get<SerializedState>("gameState"),
-      this.ctx.storage.get<SessionState>("sessionState"),
-    ]);
+    const stored = await this.ctx.storage.get<SerializedState>("gameState");
     this.engine = stored ? Connect6Engine.fromJSON(stored) : new Connect6Engine();
-    this.gameStarted = session?.gameStarted
-      ?? (this.engine.state.round > 0 || this.engine.state.moves.length > 0);
-    this.colorsAssigned = session?.colorsAssigned ?? this.gameStarted;
-    this.turnStartTime = session?.turnStartTime ?? 0;
-    this.turnDeadline = session?.turnDeadline ?? null;
-    this.resetDeadline = session?.resetDeadline ?? null;
-    this.resetConfirmations = new Set(session?.resetConfirmations ?? []);
-    this.readyPlayers = new Set(session?.readyPlayers ?? []);
-
-    for (const socket of this.ctx.getWebSockets()) {
-      const meta = socket.deserializeAttachment() as PlayerMeta | null;
-      if (meta?.color === Player.BLACK && !this.playerBlack) this.playerBlack = socket;
-      else if (meta?.color === Player.WHITE && !this.playerWhite) this.playerWhite = socket;
-      else this.observers.add(socket);
-    }
-
-    // Seamless migration from versions that did not persist turn deadlines.
-    if (this.gameStarted && this.engine.state.winner === Stone.EMPTY && !this.engine.isDraw() && !this.turnDeadline) {
-      this.turnStartTime = Date.now();
-      this.turnDeadline = this.turnStartTime + TURN_TIMEOUT_MS;
-      await this.persistSessionAndAlarm();
-    }
+    this.gameStarted = this.engine.state.round > 0 || this.engine.state.moves.length > 0;
   }
 
   private async persistState(): Promise<void> {
     await this.ctx.storage.put("gameState", this.engine.toJSON());
-  }
-
-  private async persistSessionAndAlarm(): Promise<void> {
-    const session: SessionState = {
-      gameStarted: this.gameStarted,
-      colorsAssigned: this.colorsAssigned,
-      turnStartTime: this.turnStartTime,
-      turnDeadline: this.turnDeadline,
-      resetDeadline: this.resetDeadline,
-      resetConfirmations: [...this.resetConfirmations],
-      readyPlayers: [...this.readyPlayers],
-    };
-    await this.ctx.storage.put("sessionState", session);
-
-    const deadlines = [this.turnDeadline, this.resetDeadline]
-      .filter((deadline): deadline is number => deadline !== null);
-    if (deadlines.length > 0) await this.ctx.storage.setAlarm(Math.min(...deadlines));
-    else await this.ctx.storage.deleteAlarm();
   }
 
   private getAllSockets(): WebSocket[] {
@@ -164,54 +110,37 @@ export class GameRoom extends DurableObject {
     this.broadcast({ type: MsgType.STATE, payload });
   }
 
-  private async startTurnTimer(): Promise<void> {
+  private startTurnTimer(): void {
+    this.clearTurnTimer();
     this.turnStartTime = Date.now();
-    this.turnDeadline = this.turnStartTime + TURN_TIMEOUT_MS;
-    await this.persistSessionAndAlarm();
     this.broadcastTimer();
+    this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT_MS);
   }
 
-  private async clearTurnTimer(): Promise<void> {
-    this.turnStartTime = 0;
-    this.turnDeadline = null;
-    await this.persistSessionAndAlarm();
+  private clearTurnTimer(): void {
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
   }
 
   private broadcastTimer(): void {
     const payload: TimerPayload = {
       currentPlayer: this.engine.state.currentPlayer,
-      remainingMs: this.turnDeadline ? Math.max(0, this.turnDeadline - Date.now()) : 0,
+      remainingMs: TURN_TIMEOUT_MS,
       turnStartTime: this.turnStartTime,
     };
     this.broadcast({ type: MsgType.TIMER, payload });
   }
 
   private async handleTimeout(): Promise<void> {
-    if (this.engine.state.winner !== Stone.EMPTY || this.engine.isDraw()) return;
+    if (this.engine.state.winner !== Stone.EMPTY) return;
     const loser = this.engine.state.currentPlayer;
     const winner = loser === Player.BLACK ? Player.WHITE : Player.BLACK;
     this.engine.state.winner = winner;
-    await Promise.all([this.persistState(), this.clearTurnTimer()]);
+    await this.persistState();
     this.broadcastState();
     this.broadcast({ type: MsgType.GAME_OVER, payload: { winner, reason: "timeout", loser } });
-  }
-
-  async alarm(): Promise<void> {
-    await this.ensureEngine();
-    const now = Date.now();
-
-    if (this.resetDeadline !== null && now >= this.resetDeadline) {
-      this.resetDeadline = null;
-      this.resetConfirmations.clear();
-      this.broadcast({ type: MsgType.RESET_ACK, payload: { success: false, reason: "timeout" } });
-    }
-
-    if (this.turnDeadline !== null && now >= this.turnDeadline) {
-      await this.handleTimeout();
-      return;
-    }
-
-    await this.persistSessionAndAlarm();
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -234,16 +163,13 @@ export class GameRoom extends DurableObject {
         await this.handleMove(ws, msg.payload as MovePayload);
         break;
       case MsgType.READY:
-        await this.handleReady(ws);
+        this.handleReady(ws);
         break;
       case MsgType.RESET_REQUEST:
-        await this.handleResetRequest(ws);
+        this.handleResetRequest(ws);
         break;
       case MsgType.RESET_CONFIRM:
-        await this.handleResetConfirm(ws);
-        break;
-      case MsgType.RESET_REJECT:
-        await this.handleResetReject(ws);
+        this.handleResetConfirm(ws);
         break;
       default:
         ws.send(JSON.stringify({ type: MsgType.ERROR, payload: `Unknown type: ${msg.type}` }));
@@ -282,10 +208,8 @@ export class GameRoom extends DurableObject {
     // New game — assign slot
     if (!this.playerBlack) {
       this.playerBlack = ws;
-      ws.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
     } else if (!this.playerWhite) {
       this.playerWhite = ws;
-      ws.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
     } else {
       this.observers.add(ws);
       this.sendRoomInfo(ws);
@@ -303,32 +227,24 @@ export class GameRoom extends DurableObject {
     }
   }
 
-  private async handleReady(ws: WebSocket): Promise<void> {
-    const meta = ws.deserializeAttachment() as PlayerMeta | null;
-    if (!meta || (ws !== this.playerBlack && ws !== this.playerWhite)) return;
-    this.readyPlayers.add(meta.color);
+  private handleReady(ws: WebSocket): void {
+    this.readyPlayers.add(ws);
 
     // Check if both players are ready
     const bothReady = this.playerBlack && this.playerWhite
-      && this.readyPlayers.has(Player.BLACK)
-      && this.readyPlayers.has(Player.WHITE);
+      && this.readyPlayers.has(this.playerBlack)
+      && this.readyPlayers.has(this.playerWhite);
 
     if (bothReady && !this.gameStarted) {
       this.gameStarted = true;
       this.readyPlayers.clear();
-      await this.randomizeAndStart();
-    } else {
-      await this.persistSessionAndAlarm();
+      this.randomizeAndStart();
     }
   }
 
-  private async randomizeAndStart(): Promise<void> {
+  private randomizeAndStart(): void {
     let blackWs: WebSocket, whiteWs: WebSocket;
-    if (this.colorsAssigned) {
-      // Alternate colors on rematches so a session cannot repeatedly favor one seat.
-      blackWs = this.playerWhite!;
-      whiteWs = this.playerBlack!;
-    } else if (crypto.getRandomValues(new Uint8Array(1))[0] < 128) {
+    if (Math.random() < 0.5) {
       blackWs = this.playerBlack!;
       whiteWs = this.playerWhite!;
     } else {
@@ -338,7 +254,6 @@ export class GameRoom extends DurableObject {
 
     this.playerBlack = blackWs;
     this.playerWhite = whiteWs;
-    this.colorsAssigned = true;
 
     blackWs.serializeAttachment({ color: Player.BLACK } as PlayerMeta);
     whiteWs.serializeAttachment({ color: Player.WHITE } as PlayerMeta);
@@ -356,21 +271,17 @@ export class GameRoom extends DurableObject {
       this.sendRoomInfo(s);
     }
 
-    await this.startTurnTimer();
+    this.startTurnTimer();
   }
 
   // ─── Move ───
 
   private async handleMove(ws: WebSocket, payload: MovePayload): Promise<void> {
-    if (!this.gameStarted) {
-      ws.send(JSON.stringify({ type: MsgType.ERROR, payload: "Game has not started" }));
-      return;
-    }
     if (!payload || typeof payload.x !== "number" || typeof payload.y !== "number" || typeof payload.z !== "number") {
       ws.send(JSON.stringify({ type: MsgType.ERROR, payload: "Invalid move payload" }));
       return;
     }
-    if (![payload.x, payload.y, payload.z].every(Number.isInteger)) {
+    if (isNaN(payload.x) || isNaN(payload.y) || isNaN(payload.z)) {
       ws.send(JSON.stringify({ type: MsgType.ERROR, payload: "Invalid coordinates" }));
       return;
     }
@@ -391,7 +302,6 @@ export class GameRoom extends DurableObject {
       return;
     }
 
-    const turnPlayer = this.engine.state.currentPlayer;
     const ok = this.engine.placeStone(payload.x, payload.y, payload.z);
     if (!ok) {
       ws.send(JSON.stringify({ type: MsgType.ERROR, payload: "Illegal move" }));
@@ -402,32 +312,31 @@ export class GameRoom extends DurableObject {
     this.broadcastState({ x: payload.x, y: payload.y, z: payload.z });
 
     if (this.engine.state.winner !== Stone.EMPTY) {
-      await this.clearTurnTimer();
+      this.clearTurnTimer();
       this.broadcast({ type: MsgType.GAME_OVER, payload: { winner: this.engine.state.winner } });
-    } else if (this.engine.isDraw()) {
-      await this.clearTurnTimer();
-      this.broadcast({ type: MsgType.GAME_OVER, payload: { winner: Stone.EMPTY, reason: "draw" } });
-    } else if (this.engine.state.currentPlayer !== turnPlayer) {
-      // Both stones in a normal turn share one 90-second clock.
-      await this.startTurnTimer();
+    } else {
+      this.startTurnTimer();
     }
   }
 
   // ─── Reset ───
 
-  private async handleResetRequest(ws: WebSocket): Promise<void> {
+  private handleResetRequest(ws: WebSocket): void {
     const meta = ws.deserializeAttachment() as PlayerMeta | null;
     if (!meta) return;
 
     // If game is over, reset directly without opponent confirmation
-    if (this.engine.state.winner !== Stone.EMPTY || this.engine.isDraw()) {
-      await this.executeReset();
+    if (this.engine.state.winner !== Stone.EMPTY) {
+      this.executeReset();
       return;
     }
 
     // Game in progress — need opponent confirmation
     this.resetConfirmations.clear();
-    this.resetDeadline = Date.now() + 40_000;
+    if (this.resetTimer) {
+      clearTimeout(this.resetTimer);
+      this.resetTimer = null;
+    }
 
     this.resetConfirmations.add(meta.color);
 
@@ -439,10 +348,13 @@ export class GameRoom extends DurableObject {
       }));
     }
 
-    await this.persistSessionAndAlarm();
+    this.resetTimer = setTimeout(() => {
+      this.resetConfirmations.clear();
+      this.broadcast({ type: MsgType.RESET_ACK, payload: { success: false } });
+    }, 40_000); // 40 seconds
   }
 
-  private async handleResetConfirm(ws: WebSocket): Promise<void> {
+  private handleResetConfirm(ws: WebSocket): void {
     const meta = ws.deserializeAttachment() as PlayerMeta | null;
     if (!meta) return;
 
@@ -452,30 +364,22 @@ export class GameRoom extends DurableObject {
     const hasWhite = this.resetConfirmations.has(Player.WHITE);
 
     if (hasBlack && hasWhite) {
-      await this.executeReset();
+      this.executeReset();
     }
   }
 
-  private async handleResetReject(ws: WebSocket): Promise<void> {
-    const meta = ws.deserializeAttachment() as PlayerMeta | null;
-    if (!meta || this.resetConfirmations.size === 0) return;
-
-    this.resetDeadline = null;
-    this.resetConfirmations.clear();
-    await this.persistSessionAndAlarm();
-    this.broadcast({ type: MsgType.RESET_ACK, payload: { success: false, reason: "rejected" } });
-  }
-
   private async executeReset(): Promise<void> {
-    this.turnStartTime = 0;
-    this.turnDeadline = null;
-    this.resetDeadline = null;
+    this.clearTurnTimer();
+    if (this.resetTimer) {
+      clearTimeout(this.resetTimer);
+      this.resetTimer = null;
+    }
     this.resetConfirmations.clear();
     this.readyPlayers.clear();
     this.gameStarted = false;
 
     this.engine = new Connect6Engine(this.engine.config);
-    await Promise.all([this.persistState(), this.persistSessionAndAlarm()]);
+    await this.persistState();
     this.broadcastState();
     this.broadcast({ type: MsgType.RESET_ACK, payload: { success: true } });
 
@@ -496,24 +400,24 @@ export class GameRoom extends DurableObject {
   }
 
   private async cleanupSocket(ws: WebSocket): Promise<void> {
-    const meta = ws.deserializeAttachment() as PlayerMeta | null;
     if (ws === this.playerBlack) this.playerBlack = null;
     else if (ws === this.playerWhite) this.playerWhite = null;
     else this.observers.delete(ws);
 
-    if (meta) this.readyPlayers.delete(meta.color);
+    this.readyPlayers.delete(ws);
 
     // If no players remain, reset the board for the next game
     if (!this.playerBlack && !this.playerWhite) {
-      this.turnStartTime = 0;
-      this.turnDeadline = null;
-      this.resetDeadline = null;
+      this.clearTurnTimer();
+      if (this.resetTimer) {
+        clearTimeout(this.resetTimer);
+        this.resetTimer = null;
+      }
       this.resetConfirmations.clear();
       this.readyPlayers.clear();
       this.gameStarted = false;
-      this.colorsAssigned = false;
       this.engine = new Connect6Engine(this.engine.config);
-      await Promise.all([this.persistState(), this.persistSessionAndAlarm()]);
+      await this.persistState();
     }
 
     for (const s of this.getAllSockets()) {
