@@ -2,622 +2,797 @@ import {
   type AiRequestPayload,
   type AiResponsePayload,
   type BoardConfig,
-  type Direction,
+  Player,
   Stone,
   type Vec3,
 } from "./types";
 import { DIRECTIONS } from "./engine";
 
-const WIN_SCORE = 1_000_000_000;
-const ROOT_REPLY_WIDTH = 4;
+const MATE_SCORE = 1_000_000_000_000;
+const FORCED_SCORE = 500_000_000_000;
+const ROOT_TURN_WIDTH = 48;
+const REPLY_TURN_WIDTH = 24;
+const ROOT_SEARCH_WIDTH = 10;
+const REPLY_SEARCH_WIDTH = 14;
+const QUIET_CELL_WIDTH = 22;
+const COVER_COMPLETION_WIDTH = 14;
+const SYNERGY_PAIR_WIDTH = 120;
 
-interface LineInfo {
-  count: number;
-  openEnds: number;
-  potential: number;
-  span: number;
+interface LineWindow {
+  cells: number[];
 }
 
-interface RayInfo {
-  consecutive: number;
-  open: boolean;
-  emptyReach: number;
-  reachable: number;
+interface Geometry {
+  positions: Vec3[];
+  windows: LineWindow[];
+  windowsByCell: number[][];
 }
 
-interface MoveEvaluation {
-  attack: number;
-  defend: number;
-  total: number;
+interface WindowState {
+  black: number;
+  white: number;
+  empty: number;
 }
 
-interface ScoredMove extends MoveEvaluation {
-  pos: Vec3;
-}
-
-interface TurnCandidate {
-  moves: Vec3[];
+interface PositionContext {
   board: number[];
-  heuristic: number;
-  winsNow: boolean;
-  ownWinsNext: number;
-  opponentWinsNext: number;
+  config: BoardConfig;
+  geometry: Geometry;
+  states: WindowState[];
+  blackPotential: number;
+  whitePotential: number;
 }
 
-interface PairLimits {
-  first: number;
-  second: number;
-  maxPairs: number;
+interface RankedCell {
+  index: number;
+  score: number;
 }
 
-function indexOf(x: number, y: number, z: number, c: BoardConfig): number {
-  return z * c.sizeY * c.sizeX + y * c.sizeX + x;
+interface WinningTurn {
+  cells: number[];
 }
 
-function inBounds(x: number, y: number, z: number, c: BoardConfig): boolean {
-  return x >= 0 && x < c.sizeX && y >= 0 && y < c.sizeY && z >= 0 && z < c.sizeZ;
+interface TurnOption {
+  cells: number[];
+  quickScore: number;
 }
 
-function getStone(board: number[], x: number, y: number, z: number, c: BoardConfig): Stone {
-  return board[indexOf(x, y, z, c)] as Stone;
+interface RootOption extends TurnOption {
+  context: PositionContext;
+  opponentWins: WinningTurn[];
+  ownThreats: WinningTurn[];
+  forcedNext: boolean;
 }
 
-function setStone(board: number[], pos: Vec3, c: BoardConfig, stone: Stone): void {
-  board[indexOf(pos.x, pos.y, pos.z, c)] = stone;
+const geometryCache = new Map<string, Geometry>();
+
+function configKey(config: BoardConfig): string {
+  return `${config.sizeX}x${config.sizeY}x${config.sizeZ}:${config.winLength}`;
 }
 
-function opposite(stone: Stone): Stone {
-  return stone === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
+function indexOf(x: number, y: number, z: number, config: BoardConfig): number {
+  return z * config.sizeY * config.sizeX + y * config.sizeX + x;
 }
 
-function posKey(pos: Vec3): string {
-  return `${pos.x},${pos.y},${pos.z}`;
+function inBounds(x: number, y: number, z: number, config: BoardConfig): boolean {
+  return x >= 0 && x < config.sizeX
+    && y >= 0 && y < config.sizeY
+    && z >= 0 && z < config.sizeZ;
 }
 
-function samePosition(a: Vec3, b: Vec3): boolean {
-  return a.x === b.x && a.y === b.y && a.z === b.z;
+function opposite(color: Stone): Stone {
+  return color === Stone.BLACK ? Stone.WHITE : Stone.BLACK;
 }
 
-function countStones(board: number[]): number {
-  let count = 0;
-  for (const stone of board) if (stone !== Stone.EMPTY) count++;
-  return count;
+function colorCount(state: WindowState, color: Stone): number {
+  return color === Stone.BLACK ? state.black : state.white;
 }
 
-function centerDistance(pos: Vec3, c: BoardConfig): number {
-  const cx = (c.sizeX - 1) / 2;
-  const cy = (c.sizeY - 1) / 2;
-  const cz = (c.sizeZ - 1) / 2;
-  return Math.abs(pos.x - cx) / c.sizeX
-    + Math.abs(pos.y - cy) / c.sizeY
-    + Math.abs(pos.z - cz) / c.sizeZ;
+function opponentCount(state: WindowState, color: Stone): number {
+  return color === Stone.BLACK ? state.white : state.black;
 }
 
-function scanRay(
-  board: number[], c: BoardConfig,
-  x: number, y: number, z: number,
-  dir: Direction, color: Stone,
-): RayInfo {
-  let consecutive = 0;
-  let emptyReach = 0;
-  let reachable = 0;
-  let contiguous = true;
-  let cx = x + dir.x;
-  let cy = y + dir.y;
-  let cz = z + dir.z;
-  const firstStone = inBounds(cx, cy, cz, c) ? getStone(board, cx, cy, cz, c) : null;
+function buildGeometry(config: BoardConfig): Geometry {
+  const key = configKey(config);
+  const cached = geometryCache.get(key);
+  if (cached) return cached;
 
-  while (inBounds(cx, cy, cz, c)) {
-    const stone = getStone(board, cx, cy, cz, c);
-    if (stone !== Stone.EMPTY && stone !== color) break;
-    reachable++;
-    if (stone === Stone.EMPTY) {
-      emptyReach++;
-      contiguous = false;
-    } else if (contiguous) {
-      consecutive++;
+  const size = config.sizeX * config.sizeY * config.sizeZ;
+  const positions = Array.from({ length: size }, (_, index) => {
+    const plane = config.sizeX * config.sizeY;
+    const z = Math.floor(index / plane);
+    const withinPlane = index - z * plane;
+    return {
+      x: withinPlane % config.sizeX,
+      y: Math.floor(withinPlane / config.sizeX),
+      z,
+    };
+  });
+  const windows: LineWindow[] = [];
+  const windowsByCell = Array.from({ length: size }, () => [] as number[]);
+
+  for (const direction of DIRECTIONS) {
+    for (let z = 0; z < config.sizeZ; z++) {
+      for (let y = 0; y < config.sizeY; y++) {
+        for (let x = 0; x < config.sizeX; x++) {
+          const endX = x + direction.x * (config.winLength - 1);
+          const endY = y + direction.y * (config.winLength - 1);
+          const endZ = z + direction.z * (config.winLength - 1);
+          if (!inBounds(endX, endY, endZ, config)) continue;
+
+          const cells: number[] = [];
+          for (let step = 0; step < config.winLength; step++) {
+            cells.push(indexOf(
+              x + direction.x * step,
+              y + direction.y * step,
+              z + direction.z * step,
+              config,
+            ));
+          }
+          const windowIndex = windows.length;
+          windows.push({ cells });
+          for (const cell of cells) windowsByCell[cell].push(windowIndex);
+        }
+      }
     }
-    cx += dir.x;
-    cy += dir.y;
-    cz += dir.z;
+  }
+
+  const geometry = { positions, windows, windowsByCell };
+  geometryCache.set(key, geometry);
+  return geometry;
+}
+
+function patternValue(stones: number, winLength: number): number {
+  if (stones <= 0) return 0;
+  const gap = winLength - stones;
+  if (gap <= 0) return 100_000_000;
+  if (gap === 1) return 2_400_000;
+  if (gap === 2) return 120_000;
+  if (gap === 3) return 5_500;
+  if (gap === 4) return 280;
+  if (gap === 5) return 18;
+  return Math.max(2, Math.pow(3, stones - 1));
+}
+
+function windowPotential(state: WindowState, color: Stone, winLength: number): number {
+  if (opponentCount(state, color) > 0) return 0;
+  return patternValue(colorCount(state, color), winLength);
+}
+
+function analyzeBoard(
+  board: number[],
+  config: BoardConfig,
+  geometry: Geometry,
+): PositionContext {
+  const states: WindowState[] = [];
+  let blackPotential = 0;
+  let whitePotential = 0;
+
+  for (const window of geometry.windows) {
+    let black = 0;
+    let white = 0;
+    for (const cell of window.cells) {
+      if (board[cell] === Stone.BLACK) black++;
+      else if (board[cell] === Stone.WHITE) white++;
+    }
+    const state = {
+      black,
+      white,
+      empty: config.winLength - black - white,
+    };
+    states.push(state);
+    blackPotential += windowPotential(state, Stone.BLACK, config.winLength);
+    whitePotential += windowPotential(state, Stone.WHITE, config.winLength);
   }
 
   return {
-    consecutive,
-    open: firstStone === Stone.EMPTY,
-    emptyReach,
-    reachable,
+    board,
+    config,
+    geometry,
+    states,
+    blackPotential,
+    whitePotential,
   };
 }
 
-/** Analyze the contiguous run created by treating the target cell as `color`. */
-function analyzeLine(
-  board: number[], c: BoardConfig,
-  x: number, y: number, z: number,
-  dir: Direction, color: Stone,
-): LineInfo {
-  const forward = scanRay(board, c, x, y, z, dir, color);
-  const backward = scanRay(
-    board, c, x, y, z,
-    { x: -dir.x, y: -dir.y, z: -dir.z },
-    color,
-  );
-
-  return {
-    count: 1 + forward.consecutive + backward.consecutive,
-    openEnds: Number(forward.open) + Number(backward.open),
-    potential: forward.emptyReach + backward.emptyReach,
-    span: 1 + forward.reachable + backward.reachable,
-  };
+function positionScore(context: PositionContext, color: Stone): number {
+  const own = color === Stone.BLACK ? context.blackPotential : context.whitePotential;
+  const opponent = color === Stone.BLACK ? context.whitePotential : context.blackPotential;
+  return own - opponent * 1.08;
 }
 
-function contiguousScore(info: LineInfo, winLength: number): number {
-  if (info.count >= winLength) return WIN_SCORE;
-  if (info.span < winLength || info.openEnds === 0) return 0;
-
-  const gap = winLength - info.count;
-  const halfOpen = [0, 180_000, 14_000, 850, 75, 12, 3];
-  const fullyOpen = [0, 310_000, 34_000, 2_400, 220, 32, 6];
-  const table = info.openEnds === 2 ? fullyOpen : halfOpen;
-  const base = table[Math.min(gap, table.length - 1)] ?? 2;
-  return base + Math.min(info.potential, winLength) * 0.2;
+function centerDistance(position: Vec3, config: BoardConfig): number {
+  const cx = (config.sizeX - 1) / 2;
+  const cy = (config.sizeY - 1) / 2;
+  const cz = (config.sizeZ - 1) / 2;
+  return Math.abs(position.x - cx) / Math.max(1, config.sizeX)
+    + Math.abs(position.y - cy) / Math.max(1, config.sizeY)
+    + Math.abs(position.z - cz) / Math.max(1, config.sizeZ);
 }
 
-function windowBaseScore(stones: number, winLength: number): number {
-  const gap = winLength - stones;
-  if (gap <= 0) return WIN_SCORE;
-  const scores = [0, 125_000, 7_500, 520, 48, 9, 3];
-  return scores[Math.min(gap, scores.length - 1)] ?? Math.max(2, stones * 2);
+function compareCellIndices(a: number, b: number, geometry: Geometry, config: BoardConfig): number {
+  const byCenter = centerDistance(geometry.positions[a], config)
+    - centerDistance(geometry.positions[b], config);
+  return byCenter !== 0 ? byCenter : a - b;
+}
+
+function compareTurns(a: number[], b: number[]): number {
+  const length = Math.min(a.length, b.length);
+  for (let index = 0; index < length; index++) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return a.length - b.length;
+}
+
+function turnKey(cells: number[]): string {
+  return [...cells].sort((a, b) => a - b).join(",");
+}
+
+function canonicalTurn(cells: number[]): number[] {
+  return [...new Set(cells)].sort((a, b) => a - b);
+}
+
+function collectWinningTurns(
+  context: PositionContext,
+  color: Stone,
+  stonesAvailable: number,
+): WinningTurn[] {
+  const result: WinningTurn[] = [];
+  const seen = new Set<string>();
+
+  for (let windowIndex = 0; windowIndex < context.geometry.windows.length; windowIndex++) {
+    const state = context.states[windowIndex];
+    if (opponentCount(state, color) > 0) continue;
+    const needed = context.config.winLength - colorCount(state, color);
+    if (needed < 1 || needed > stonesAvailable || needed > 2) continue;
+
+    const cells = context.geometry.windows[windowIndex].cells
+      .filter((cell) => context.board[cell] === Stone.EMPTY)
+      .sort((a, b) => a - b);
+    if (cells.length !== needed) continue;
+    const key = turnKey(cells);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ cells });
+  }
+
+  return result.sort((a, b) => compareTurns(a.cells, b.cells));
+}
+
+function isThreatCovered(threat: WinningTurn, chosen: number[]): boolean {
+  return threat.cells.some((cell) => chosen.includes(cell));
 }
 
 /**
- * Scores every win-length window containing the target. Unlike contiguous-only
- * evaluation, this recognizes bridge moves such as XX_XX and 3D broken lines.
+ * Enumerates every minimal hitting set of at most `maxStones` cells.
+ * A defensive turn is valid only when it intersects every opponent winning turn.
  */
-function directionPatternScore(
-  board: number[], c: BoardConfig,
-  x: number, y: number, z: number,
-  dir: Direction, color: Stone,
-): number {
-  let bestWindow = 0;
+function enumerateThreatCovers(threats: WinningTurn[], maxStones: number): number[][] {
+  if (threats.length === 0) return [[]];
+  const results: number[][] = [];
+  const seen = new Set<string>();
 
-  for (let start = -(c.winLength - 1); start <= 0; start++) {
-    let stones = 0;
-    let blocked = false;
-    let firstStone = c.winLength;
-    let lastStone = -1;
-    const cells: Stone[] = [];
-
-    for (let offset = 0; offset < c.winLength; offset++) {
-      const step = start + offset;
-      const cx = x + step * dir.x;
-      const cy = y + step * dir.y;
-      const cz = z + step * dir.z;
-      if (!inBounds(cx, cy, cz, c)) {
-        blocked = true;
-        break;
+  const visit = (chosen: number[]) => {
+    const remaining = threats.filter((threat) => !isThreatCovered(threat, chosen));
+    if (remaining.length === 0) {
+      const cover = canonicalTurn(chosen);
+      const key = turnKey(cover);
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(cover);
       }
-      const stone = step === 0 ? color : getStone(board, cx, cy, cz, c);
-      cells.push(stone);
-      if (stone !== Stone.EMPTY && stone !== color) {
-        blocked = true;
-        break;
-      }
-      if (stone === color) {
-        stones++;
-        firstStone = Math.min(firstStone, offset);
-        lastStone = offset;
-      }
+      return;
     }
-    if (blocked) continue;
+    if (chosen.length >= maxStones) return;
 
-    let internalGaps = 0;
-    for (let i = firstStone; i <= lastStone; i++) {
-      if (cells[i] === Stone.EMPTY) internalGaps++;
+    const pivot = remaining.reduce((best, threat) =>
+      threat.cells.length < best.cells.length ? threat : best);
+    for (const cell of pivot.cells) {
+      if (chosen.includes(cell)) continue;
+      visit([...chosen, cell]);
     }
+  };
 
-    const beforeStep = start - 1;
-    const afterStep = start + c.winLength;
-    const beforeOpen = inBounds(
-      x + beforeStep * dir.x,
-      y + beforeStep * dir.y,
-      z + beforeStep * dir.z,
-      c,
-    ) && getStone(
-      board,
-      x + beforeStep * dir.x,
-      y + beforeStep * dir.y,
-      z + beforeStep * dir.z,
-      c,
-    ) === Stone.EMPTY;
-    const afterOpen = inBounds(
-      x + afterStep * dir.x,
-      y + afterStep * dir.y,
-      z + afterStep * dir.z,
-      c,
-    ) && getStone(
-      board,
-      x + afterStep * dir.x,
-      y + afterStep * dir.y,
-      z + afterStep * dir.z,
-      c,
-    ) === Stone.EMPTY;
-
-    const openness = Number(beforeOpen) + Number(afterOpen);
-    const gapPenalty = Math.pow(0.7, internalGaps);
-    const score = windowBaseScore(stones, c.winLength)
-      * gapPenalty
-      * (1 + openness * 0.14);
-    bestWindow = Math.max(bestWindow, score);
-  }
-
-  const contiguous = contiguousScore(analyzeLine(board, c, x, y, z, dir, color), c.winLength);
-  return Math.max(bestWindow, contiguous);
+  visit([]);
+  return results.sort(compareTurns);
 }
 
-function evaluateMove(
-  board: number[], c: BoardConfig,
-  pos: Vec3, color: Stone, opponent: Stone,
-): MoveEvaluation {
-  const attackScores: number[] = [];
-  const defendScores: number[] = [];
+function rankCells(context: PositionContext, color: Stone): RankedCell[] {
+  const ranked: RankedCell[] = [];
+  const opponent = opposite(color);
 
-  for (const dir of DIRECTIONS) {
-    attackScores.push(directionPatternScore(board, c, pos.x, pos.y, pos.z, dir, color));
-    defendScores.push(directionPatternScore(board, c, pos.x, pos.y, pos.z, dir, opponent));
+  for (let cell = 0; cell < context.board.length; cell++) {
+    if (context.board[cell] !== Stone.EMPTY) continue;
+    let attack = 0;
+    let defense = 0;
+    let strongestAttack = 0;
+    let secondAttack = 0;
+    let strongestDefense = 0;
+
+    for (const windowIndex of context.geometry.windowsByCell[cell]) {
+      const state = context.states[windowIndex];
+      if (opponentCount(state, color) === 0) {
+        const before = windowPotential(state, color, context.config.winLength);
+        const after = patternValue(colorCount(state, color) + 1, context.config.winLength);
+        const gain = Math.max(0, after - before);
+        attack += gain;
+        if (gain > strongestAttack) {
+          secondAttack = strongestAttack;
+          strongestAttack = gain;
+        } else if (gain > secondAttack) {
+          secondAttack = gain;
+        }
+      }
+      if (opponentCount(state, opponent) === 0) {
+        const saved = windowPotential(state, opponent, context.config.winLength);
+        defense += saved;
+        strongestDefense = Math.max(strongestDefense, saved);
+      }
+    }
+
+    const forkBonus = secondAttack * 0.62 + strongestAttack * 0.08;
+    const urgentDefense = strongestDefense >= patternValue(
+      context.config.winLength - 2,
+      context.config.winLength,
+    ) ? 1.32 : 1.1;
+    const centrality = Math.max(
+      0,
+      1.5 - centerDistance(context.geometry.positions[cell], context.config),
+    ) * 36 + context.geometry.windowsByCell[cell].length * 0.15;
+    ranked.push({
+      index: cell,
+      score: attack + forkBonus + defense * urgentDefense + centrality,
+    });
   }
 
-  attackScores.sort((a, b) => b - a);
-  defendScores.sort((a, b) => b - a);
-  const attack = attackScores.reduce((sum, score) => sum + score, 0);
-  const defend = defendScores.reduce((sum, score) => sum + score, 0);
-  const attackFork = (attackScores[1] ?? 0) * 0.72 + (attackScores[2] ?? 0) * 0.28;
-  const defendFork = (defendScores[1] ?? 0) * 0.62;
-  const urgency = defendScores[0] >= WIN_SCORE
-    ? 2
-    : defendScores[0] >= 100_000
-      ? 1.55
-      : defendScores[0] >= 7_000
-        ? 1.3
-        : 1.12;
-  const centerBonus = Math.max(0, 1 - centerDistance(pos, c)) * 28;
+  return ranked.sort((a, b) => {
+    const byScore = b.score - a.score;
+    return byScore !== 0
+      ? byScore
+      : compareCellIndices(a.index, b.index, context.geometry, context.config);
+  });
+}
 
+function affectedWindowCounts(context: PositionContext, cells: number[]): Map<number, number> {
+  const affected = new Map<number, number>();
+  for (const cell of cells) {
+    for (const windowIndex of context.geometry.windowsByCell[cell]) {
+      affected.set(windowIndex, (affected.get(windowIndex) ?? 0) + 1);
+    }
+  }
+  return affected;
+}
+
+function stateAfterAdds(state: WindowState, color: Stone, count: number): WindowState {
+  return color === Stone.BLACK
+    ? { black: state.black + count, white: state.white, empty: state.empty - count }
+    : { black: state.black, white: state.white + count, empty: state.empty - count };
+}
+
+function quickPositionScoreAfter(
+  context: PositionContext,
+  cells: number[],
+  color: Stone,
+): { score: number; tacticalBonus: number; wins: boolean } {
+  let blackPotential = context.blackPotential;
+  let whitePotential = context.whitePotential;
+  let tacticalBonus = 0;
+  let wins = false;
+
+  for (const [windowIndex, added] of affectedWindowCounts(context, cells)) {
+    const before = context.states[windowIndex];
+    const after = stateAfterAdds(before, color, added);
+    blackPotential -= windowPotential(before, Stone.BLACK, context.config.winLength);
+    whitePotential -= windowPotential(before, Stone.WHITE, context.config.winLength);
+    blackPotential += windowPotential(after, Stone.BLACK, context.config.winLength);
+    whitePotential += windowPotential(after, Stone.WHITE, context.config.winLength);
+
+    if (opponentCount(after, color) > 0) continue;
+    const gap = context.config.winLength - colorCount(after, color);
+    if (gap <= 0) wins = true;
+    else if (gap === 1) tacticalBonus += 12_000_000;
+    else if (gap === 2) tacticalBonus += 900_000;
+    else if (gap === 3) tacticalBonus += 28_000;
+  }
+
+  const own = color === Stone.BLACK ? blackPotential : whitePotential;
+  const opponent = color === Stone.BLACK ? whitePotential : blackPotential;
   return {
-    attack,
-    defend,
-    total: attack + attackFork + defend * urgency + defendFork + centerBonus,
+    score: own - opponent * 1.08,
+    tacticalBonus,
+    wins,
   };
 }
 
-function evaluateBoard(board: number[], c: BoardConfig, color: Stone): number {
-  let total = 0;
-  for (let z = 0; z < c.sizeZ; z++) {
-    for (let y = 0; y < c.sizeY; y++) {
-      for (let x = 0; x < c.sizeX; x++) {
-        if (getStone(board, x, y, z, c) !== color) continue;
-        for (const dir of DIRECTIONS) {
-          const px = x - dir.x;
-          const py = y - dir.y;
-          const pz = z - dir.z;
-          if (inBounds(px, py, pz, c) && getStone(board, px, py, pz, c) === color) continue;
-          total += contiguousScore(analyzeLine(board, c, x, y, z, dir, color), c.winLength);
-        }
+function applyCells(context: PositionContext, cells: number[], color: Stone): PositionContext {
+  const board = [...context.board];
+  for (const cell of cells) board[cell] = color;
+  return analyzeBoard(board, context.config, context.geometry);
+}
+
+function addTurn(target: Map<string, number[]>, cells: number[], context: PositionContext): void {
+  const turn = canonicalTurn(cells);
+  if (turn.length === 0 || turn.some((cell) => context.board[cell] !== Stone.EMPTY)) return;
+  target.set(turnKey(turn), turn);
+}
+
+function completeCover(
+  cover: number[],
+  stonesToPlace: number,
+  ranked: RankedCell[],
+  context: PositionContext,
+  target: Map<string, number[]>,
+): void {
+  if (cover.length >= stonesToPlace) {
+    addTurn(target, cover.slice(0, stonesToPlace), context);
+    return;
+  }
+
+  const available = ranked
+    .filter((cell) => !cover.includes(cell.index))
+    .slice(0, COVER_COMPLETION_WIDTH);
+  const remaining = stonesToPlace - cover.length;
+  if (remaining === 1) {
+    for (const cell of available) addTurn(target, [...cover, cell.index], context);
+    return;
+  }
+
+  for (let first = 0; first < available.length; first++) {
+    for (let second = first + 1; second < available.length; second++) {
+      addTurn(target, [...cover, available[first].index, available[second].index], context);
+    }
+  }
+}
+
+function addSynergyPairs(
+  context: PositionContext,
+  color: Stone,
+  scoreByCell: Map<number, number>,
+  target: Map<string, number[]>,
+): void {
+  const opponent = opposite(color);
+  const suggestions: { cells: number[]; priority: number }[] = [];
+
+  for (let windowIndex = 0; windowIndex < context.geometry.windows.length; windowIndex++) {
+    const state = context.states[windowIndex];
+    if (state.empty < 2) continue;
+
+    let priority = 0;
+    if (opponentCount(state, color) === 0 && colorCount(state, color) >= 1) {
+      priority = Math.max(
+        priority,
+        patternValue(
+          Math.min(context.config.winLength, colorCount(state, color) + 2),
+          context.config.winLength,
+        ) - windowPotential(state, color, context.config.winLength),
+      );
+    }
+    if (opponentCount(state, opponent) === 0 && colorCount(state, opponent) >= 2) {
+      priority = Math.max(
+        priority,
+        windowPotential(state, opponent, context.config.winLength) * 1.12,
+      );
+    }
+    if (priority <= 0) continue;
+
+    const empties = context.geometry.windows[windowIndex].cells
+      .filter((cell) => context.board[cell] === Stone.EMPTY)
+      .sort((a, b) => (scoreByCell.get(b) ?? 0) - (scoreByCell.get(a) ?? 0) || a - b)
+      .slice(0, 3);
+    for (let first = 0; first < empties.length; first++) {
+      for (let second = first + 1; second < empties.length; second++) {
+        suggestions.push({
+          cells: canonicalTurn([empties[first], empties[second]]),
+          priority: priority
+            + (scoreByCell.get(empties[first]) ?? 0) * 0.05
+            + (scoreByCell.get(empties[second]) ?? 0) * 0.05,
+        });
       }
     }
   }
-  return total;
+
+  suggestions.sort((a, b) =>
+    b.priority - a.priority || compareTurns(a.cells, b.cells));
+  for (const suggestion of suggestions.slice(0, SYNERGY_PAIR_WIDTH)) {
+    addTurn(target, suggestion.cells, context);
+  }
 }
 
-function getCandidates(board: number[], c: BoardConfig): Vec3[] {
-  const candidates: Vec3[] = [];
-  const seen = new Set<number>();
-  const radius = Math.max(1, c.winLength - 1);
+function generateTurnCandidates(
+  context: PositionContext,
+  color: Stone,
+  stonesToPlace: number,
+  width: number,
+): TurnOption[] {
+  const ranked = rankCells(context, color);
+  if (ranked.length === 0) return [];
+  const actualStones = Math.min(stonesToPlace, ranked.length);
+  const opponentThreats = collectWinningTurns(context, opposite(color), 2);
+  const covers = enumerateThreatCovers(opponentThreats, actualStones);
+  const turns = new Map<string, number[]>();
 
-  for (let z = 0; z < c.sizeZ; z++) {
-    for (let y = 0; y < c.sizeY; y++) {
-      for (let x = 0; x < c.sizeX; x++) {
-        if (getStone(board, x, y, z, c) === Stone.EMPTY) continue;
-        for (const dir of DIRECTIONS) {
-          for (const sign of [-1, 1]) {
-            for (let distance = 1; distance <= radius; distance++) {
-              const nx = x + dir.x * distance * sign;
-              const ny = y + dir.y * distance * sign;
-              const nz = z + dir.z * distance * sign;
-              if (!inBounds(nx, ny, nz, c)) break;
-              if (getStone(board, nx, ny, nz, c) !== Stone.EMPTY) continue;
-              const index = indexOf(nx, ny, nz, c);
-              if (seen.has(index)) continue;
-              seen.add(index);
-              candidates.push({ x: nx, y: ny, z: nz });
-            }
-          }
-        }
+  if (opponentThreats.length > 0 && covers.length > 0) {
+    for (const cover of covers) {
+      completeCover(cover, actualStones, ranked, context, turns);
+    }
+  } else if (actualStones === 1) {
+    const threatCells = opponentThreats.flatMap((threat) => threat.cells);
+    const pool = [...new Set([
+      ...threatCells,
+      ...ranked.slice(0, Math.max(width, QUIET_CELL_WIDTH)).map((cell) => cell.index),
+    ])];
+    for (const cell of pool) addTurn(turns, [cell], context);
+  } else {
+    const threatCells = opponentThreats.flatMap((threat) => threat.cells);
+    const pool = [...new Set([
+      ...threatCells,
+      ...ranked.slice(0, QUIET_CELL_WIDTH).map((cell) => cell.index),
+    ])];
+    for (let first = 0; first < pool.length; first++) {
+      for (let second = first + 1; second < pool.length; second++) {
+        addTurn(turns, [pool[first], pool[second]], context);
       }
     }
+    const scoreByCell = new Map(ranked.map((cell) => [cell.index, cell.score]));
+    addSynergyPairs(context, color, scoreByCell, turns);
   }
 
-  if (candidates.length === 0) {
-    candidates.push({
-      x: Math.floor(c.sizeX / 2),
-      y: Math.floor(c.sizeY / 2),
-      z: Math.floor(c.sizeZ / 2),
+  if (turns.size === 0) {
+    addTurn(
+      turns,
+      ranked.slice(0, actualStones).map((cell) => cell.index),
+      context,
+    );
+  }
+
+  const scoreByCell = new Map(ranked.map((cell) => [cell.index, cell.score]));
+  const options: TurnOption[] = [];
+  for (const cells of turns.values()) {
+    const quick = quickPositionScoreAfter(context, cells, color);
+    const uncovered = opponentThreats.filter((threat) => !isThreatCovered(threat, cells)).length;
+    const cellScore = cells.reduce((sum, cell) => sum + (scoreByCell.get(cell) ?? 0), 0);
+    options.push({
+      cells,
+      quickScore: quick.score
+        + quick.tacticalBonus
+        + cellScore * 0.12
+        + (quick.wins ? MATE_SCORE : 0)
+        - uncovered * MATE_SCORE,
     });
   }
-  return candidates;
+
+  return options.sort((a, b) =>
+    b.quickScore - a.quickScore || compareTurns(a.cells, b.cells))
+    .slice(0, width);
 }
 
-function scoreCandidates(
-  board: number[], c: BoardConfig,
-  candidates: Vec3[], color: Stone, opponent: Stone,
-): ScoredMove[] {
-  return candidates.map((pos) => ({ pos, ...evaluateMove(board, c, pos, color, opponent) }))
-    .sort((a, b) => {
-      const byScore = b.total - a.total;
-      if (byScore !== 0) return byScore;
-      const byCenter = centerDistance(a.pos, c) - centerDistance(b.pos, c);
-      return byCenter !== 0 ? byCenter : posKey(a.pos).localeCompare(posKey(b.pos));
-    });
+function chooseWinningTurn(
+  context: PositionContext,
+  color: Stone,
+  stonesToPlace: number,
+): number[] | null {
+  const wins = collectWinningTurns(context, color, stonesToPlace);
+  if (wins.length === 0) return null;
+
+  return wins.map((win) => ({
+    cells: win.cells,
+    score: quickPositionScoreAfter(context, win.cells, color).score,
+  })).sort((a, b) =>
+    a.cells.length - b.cells.length
+    || b.score - a.score
+    || compareTurns(a.cells, b.cells))[0].cells;
 }
 
-function isWinningMove(board: number[], c: BoardConfig, pos: Vec3, color: Stone): boolean {
-  return DIRECTIONS.some((dir) =>
-    analyzeLine(board, c, pos.x, pos.y, pos.z, dir, color).count >= c.winLength);
+function countEmpty(board: number[]): number {
+  let count = 0;
+  for (const stone of board) if (stone === Stone.EMPTY) count++;
+  return count;
 }
 
-function findWinningCells(
-  board: number[], c: BoardConfig, color: Stone, cap = Number.POSITIVE_INFINITY,
-): Vec3[] {
-  const result: Vec3[] = [];
-  for (const pos of getCandidates(board, c)) {
-    if (!isWinningMove(board, c, pos, color)) continue;
-    result.push(pos);
-    if (result.length >= cap) break;
-  }
-  return result;
+function hasExistingWin(context: PositionContext): boolean {
+  return context.states.some((state) =>
+    state.black >= context.config.winLength || state.white >= context.config.winLength);
 }
 
-function findImmediateWin(
-  board: number[], c: BoardConfig,
-  color: Stone, opponent: Stone, stonesToPlace: number,
-): Vec3[] | null {
-  const singleWins = findWinningCells(board, c, color, 1);
-  if (singleWins.length > 0) return [singleWins[0]];
-  if (stonesToPlace < 2) return null;
-
-  const firstMoves = scoreCandidates(board, c, getCandidates(board, c), color, opponent)
-    .sort((a, b) => b.attack - a.attack)
-    .slice(0, 48);
-
-  for (const first of firstMoves) {
-    const afterFirst = [...board];
-    setStone(afterFirst, first.pos, c, color);
-    const secondWins = findWinningCells(afterFirst, c, color, 1);
-    if (secondWins.length > 0) return [first.pos, secondWins[0]];
-  }
-  return null;
-}
-
-function mergeUniquePositions(...groups: Vec3[][]): Vec3[] {
-  const result: Vec3[] = [];
-  const seen = new Set<string>();
-  for (const group of groups) {
-    for (const pos of group) {
-      const key = posKey(pos);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.push(pos);
-    }
-  }
-  return result;
-}
-
-function evaluatePosition(
-  board: number[], c: BoardConfig, color: Stone, opponent: Stone,
+function evaluateAfterReply(
+  context: PositionContext,
+  color: Stone,
+  opponent: Stone,
 ): number {
-  const ownWins = findWinningCells(board, c, color, 4).length;
-  const opponentWins = findWinningCells(board, c, opponent, 4).length;
-  return evaluateBoard(board, c, color)
-    - evaluateBoard(board, c, opponent) * 1.1
-    + ownWins * 14_000_000
-    - opponentWins * 18_000_000;
-}
+  const ownWins = collectWinningTurns(context, color, 2);
+  if (ownWins.length > 0) return MATE_SCORE + positionScore(context, color);
 
-function turnKey(moves: Vec3[]): string {
-  return moves.map(posKey).sort().join("|");
-}
-
-function generatePairCandidates(
-  board: number[], c: BoardConfig,
-  color: Stone, opponent: Stone,
-  limits: PairLimits,
-): TurnCandidate[] {
-  const candidates = getCandidates(board, c);
-  if (candidates.length === 0) return [];
-
-  const originalOpponentWins = findWinningCells(board, c, opponent, 8);
-  const originalWinKeys = new Set(originalOpponentWins.map(posKey));
-  const firstScored = scoreCandidates(board, c, candidates, color, opponent);
-  const firstPool = mergeUniquePositions(
-    originalOpponentWins,
-    firstScored.slice(0, limits.first).map((move) => move.pos),
-  );
-  const firstScores = new Map(firstScored.map((move) => [posKey(move.pos), move.total]));
-  const results: TurnCandidate[] = [];
-  const seenPairs = new Set<string>();
-
-  for (const first of firstPool) {
-    const afterFirst = [...board];
-    setStone(afterFirst, first, c, color);
-    const secondCandidates = getCandidates(afterFirst, c);
-
-    if (secondCandidates.length === 0) {
-      results.push({
-        moves: [first],
-        board: afterFirst,
-        heuristic: firstScores.get(posKey(first)) ?? 0,
-        winsNow: false,
-        ownWinsNext: 0,
-        opponentWinsNext: 0,
-      });
-      continue;
-    }
-
-    const opponentWinsAfterFirst = findWinningCells(afterFirst, c, opponent, 8);
-    const secondScored = scoreCandidates(afterFirst, c, secondCandidates, color, opponent);
-    const secondPool = mergeUniquePositions(
-      opponentWinsAfterFirst,
-      secondScored.slice(0, limits.second).map((move) => move.pos),
-    );
-    const secondScores = new Map(secondScored.map((move) => [posKey(move.pos), move.total]));
-
-    for (const second of secondPool) {
-      const pairKey = turnKey([first, second]);
-      if (seenPairs.has(pairKey)) continue;
-      seenPairs.add(pairKey);
-
-      const winsNow = isWinningMove(afterFirst, c, second, color);
-      const afterPair = [...afterFirst];
-      setStone(afterPair, second, c, color);
-      const ownWinsNext = winsNow ? 4 : findWinningCells(afterPair, c, color, 4).length;
-      const opponentWinsNext = findWinningCells(afterPair, c, opponent, 4).length;
-      const blockedOriginal = Number(originalWinKeys.has(posKey(first)))
-        + Number(originalWinKeys.has(posKey(second)));
-      const unblockedOriginal = Math.max(0, originalOpponentWins.length - blockedOriginal);
-      const positionBalance = evaluateBoard(afterPair, c, color)
-        - evaluateBoard(afterPair, c, opponent) * 1.1;
-      const heuristic = (firstScores.get(posKey(first)) ?? 0)
-        + (secondScores.get(posKey(second)) ?? 0) * 1.08
-        + positionBalance * 0.08
-        + ownWinsNext * 13_000_000
-        - opponentWinsNext * 22_000_000
-        + blockedOriginal * 20_000_000
-        - unblockedOriginal * 30_000_000
-        + (winsNow ? WIN_SCORE : 0);
-
-      results.push({
-        moves: [first, second],
-        board: afterPair,
-        heuristic,
-        winsNow,
-        ownWinsNext,
-        opponentWinsNext,
-      });
-    }
+  const opponentThreats = collectWinningTurns(context, opponent, 2);
+  if (
+    opponentThreats.length > 0
+    && enumerateThreatCovers(opponentThreats, Math.min(2, countEmpty(context.board))).length === 0
+  ) {
+    return -FORCED_SCORE + positionScore(context, color);
   }
 
-  return results.sort((a, b) => {
-    const byScore = b.heuristic - a.heuristic;
-    return byScore !== 0 ? byScore : turnKey(a.moves).localeCompare(turnKey(b.moves));
-  }).slice(0, limits.maxPairs);
+  const singleThreats = opponentThreats.filter((threat) => threat.cells.length === 1).length;
+  const pairThreats = opponentThreats.length - singleThreats;
+  return positionScore(context, color)
+    - singleThreats * 4_000_000
+    - pairThreats * 320_000;
 }
 
-function chooseBestPair(
-  board: number[], c: BoardConfig,
-  color: Stone, opponent: Stone,
-): Vec3[] | null {
-  const roots = generatePairCandidates(
-    board, c, color, opponent,
-    { first: 12, second: 8, maxPairs: 20 },
+function chooseBestTurn(
+  context: PositionContext,
+  color: Stone,
+  stonesToPlace: number,
+): number[] | null {
+  const winningTurn = chooseWinningTurn(context, color, stonesToPlace);
+  if (winningTurn) return winningTurn;
+
+  const opponent = opposite(color);
+  const candidates = generateTurnCandidates(
+    context,
+    color,
+    stonesToPlace,
+    ROOT_TURN_WIDTH,
   );
-  if (roots.length === 0) return null;
-  if (roots[0].winsNow) return roots[0].moves;
+  if (candidates.length === 0) return null;
 
-  let best = roots[0];
+  const roots: RootOption[] = candidates.map((candidate) => {
+    const next = applyCells(context, candidate.cells, color);
+    const opponentWins = collectWinningTurns(next, opponent, 2);
+    const ownThreats = collectWinningTurns(next, color, 2);
+    return {
+      ...candidate,
+      context: next,
+      opponentWins,
+      ownThreats,
+      forcedNext: opponentWins.length === 0
+        && ownThreats.length > 0
+        && enumerateThreatCovers(
+          ownThreats,
+          Math.min(2, countEmpty(next.board)),
+        ).length === 0,
+    };
+  });
+
+  const safeRoots = roots.filter((root) => root.opponentWins.length === 0);
+  const pool = safeRoots.length > 0 ? safeRoots : roots;
+  pool.sort((a, b) => {
+    if (a.forcedNext !== b.forcedNext) return a.forcedNext ? -1 : 1;
+    const byOpponentWins = a.opponentWins.length - b.opponentWins.length;
+    return byOpponentWins !== 0
+      ? byOpponentWins
+      : b.quickScore - a.quickScore || compareTurns(a.cells, b.cells);
+  });
+
+  if (pool[0].forcedNext) return pool[0].cells;
+  if (safeRoots.length === 0) return pool[0].cells;
+
+  let best = pool[0];
   let bestValue = -Infinity;
-
-  for (const root of roots.slice(0, ROOT_REPLY_WIDTH)) {
-    if (root.ownWinsNext >= 3 && root.opponentWinsNext === 0) return root.moves;
-
-    const replies = generatePairCandidates(
-      root.board, c, opponent, color,
-      { first: 4, second: 3, maxPairs: 8 },
+  for (const root of pool.slice(0, ROOT_SEARCH_WIDTH)) {
+    const replies = generateTurnCandidates(
+      root.context,
+      opponent,
+      Math.min(2, countEmpty(root.context.board)),
+      REPLY_TURN_WIDTH,
     );
-    let worstReply = evaluatePosition(root.board, c, color, opponent);
+    let worstReply = positionScore(root.context, color);
 
     if (replies.length > 0) {
       worstReply = Infinity;
-      for (const reply of replies) {
-        const value = reply.winsNow
-          ? -WIN_SCORE
-          : evaluatePosition(reply.board, c, color, opponent);
+      for (const reply of replies.slice(0, REPLY_SEARCH_WIDTH)) {
+        const afterReply = applyCells(root.context, reply.cells, opponent);
+        const value = evaluateAfterReply(afterReply, color, opponent);
         worstReply = Math.min(worstReply, value);
       }
     }
 
-    const value = worstReply + root.heuristic * 0.06;
-    if (value > bestValue || (value === bestValue && turnKey(root.moves) < turnKey(best.moves))) {
+    const value = worstReply + root.quickScore * 0.01;
+    if (
+      value > bestValue
+      || (value === bestValue && compareTurns(root.cells, best.cells) < 0)
+    ) {
       bestValue = value;
       best = root;
     }
   }
 
-  return best.moves;
+  return best.cells;
 }
 
-function chooseBestSingle(
-  board: number[], c: BoardConfig,
-  color: Stone, opponent: Stone,
-): Vec3 | null {
-  const candidates = getCandidates(board, c);
-  if (candidates.length === 0) return null;
+function validConfig(config: BoardConfig): boolean {
+  return Number.isInteger(config.sizeX) && config.sizeX > 0
+    && Number.isInteger(config.sizeY) && config.sizeY > 0
+    && Number.isInteger(config.sizeZ) && config.sizeZ > 0
+    && Number.isInteger(config.winLength) && config.winLength >= 2;
+}
 
-  const opponentWins = findWinningCells(board, c, opponent, 8);
-  const pool = opponentWins.length > 0 ? opponentWins : candidates;
-  const scored = scoreCandidates(board, c, pool, color, opponent).slice(0, 14);
-  let best = scored[0]?.pos ?? candidates[0];
-  let bestValue = -Infinity;
-
-  for (const move of scored) {
-    const simulated = [...board];
-    setStone(simulated, move.pos, c, color);
-    const value = evaluatePosition(simulated, c, color, opponent) + move.total * 0.08;
-    if (value > bestValue) {
-      bestValue = value;
-      best = move.pos;
-    }
-  }
-  return best;
+function validBoard(board: number[], expectedSize: number): boolean {
+  return board.length === expectedSize
+    && board.every((stone) =>
+      stone === Stone.EMPTY || stone === Stone.BLACK || stone === Stone.WHITE);
 }
 
 export function computeAiMove(request: AiRequestPayload): AiResponsePayload {
   const { board, config, aiColor, currentPlayer, stonesToPlace } = request;
-  const expectedSize = config.sizeX * config.sizeY * config.sizeZ;
-  if (currentPlayer !== aiColor || stonesToPlace <= 0 || board.length !== expectedSize) {
+  if (
+    currentPlayer !== aiColor
+    || (aiColor !== Player.BLACK && aiColor !== Player.WHITE)
+    || !Number.isInteger(stonesToPlace)
+    || stonesToPlace < 1
+    || stonesToPlace > 2
+    || !validConfig(config)
+  ) {
     return { moves: [] };
   }
-  if (!board.some((stone) => stone === Stone.EMPTY)) return { moves: [] };
+
+  const expectedSize = config.sizeX * config.sizeY * config.sizeZ;
+  if (!validBoard(board, expectedSize)) return { moves: [] };
+  const emptyCount = countEmpty(board);
+  if (emptyCount === 0) return { moves: [] };
+
+  const geometry = buildGeometry(config);
+  if (geometry.windows.length === 0) return { moves: [] };
+  const context = analyzeBoard([...board], config, geometry);
+  if (hasExistingWin(context)) return { moves: [] };
+
+  // The opening is intentionally fixed and color-neutral for reproducible play.
+  if (emptyCount === board.length) {
+    return {
+      moves: [{
+        x: Math.floor(config.sizeX / 2),
+        y: Math.floor(config.sizeY / 2),
+        z: Math.floor(config.sizeZ / 2),
+      }],
+    };
+  }
 
   const color = aiColor as unknown as Stone;
-  const opponent = opposite(color);
-  const workingBoard = [...board];
-
-  // Deterministic central opening maximizes the 13-direction option space.
-  if (countStones(workingBoard) === 0) {
-    return { moves: [getCandidates(workingBoard, config)[0]] };
-  }
-
-  const win = findImmediateWin(workingBoard, config, color, opponent, stonesToPlace);
-  if (win) return { moves: win.slice(0, stonesToPlace) };
-
-  if (stonesToPlace >= 2) {
-    const pair = chooseBestPair(workingBoard, config, color, opponent);
-    if (pair) return { moves: pair.slice(0, stonesToPlace) };
-  }
-
-  const move = chooseBestSingle(workingBoard, config, color, opponent);
-  return { moves: move ? [move] : [] };
+  const cells = chooseBestTurn(
+    context,
+    color,
+    Math.min(stonesToPlace, emptyCount),
+  );
+  return {
+    moves: cells?.map((cell) => ({ ...geometry.positions[cell] })) ?? [],
+  };
 }
 
-/** Highest directional tactical value for training analysis and diagnostics. */
+/** Highest exact line-window value for training analysis and diagnostics. */
 export function scoreCell(
-  board: number[], config: BoardConfig,
-  x: number, y: number, z: number,
+  board: number[],
+  config: BoardConfig,
+  x: number,
+  y: number,
+  z: number,
   color: Stone,
 ): number {
-  if (!inBounds(x, y, z, config) || getStone(board, x, y, z, config) !== Stone.EMPTY) return 0;
+  if (
+    !validConfig(config)
+    || !inBounds(x, y, z, config)
+    || (color !== Stone.BLACK && color !== Stone.WHITE)
+  ) {
+    return 0;
+  }
+  const expectedSize = config.sizeX * config.sizeY * config.sizeZ;
+  if (!validBoard(board, expectedSize)) return 0;
+
+  const geometry = buildGeometry(config);
+  const cell = indexOf(x, y, z, config);
+  if (board[cell] !== Stone.EMPTY) return 0;
   let best = 0;
-  for (const dir of DIRECTIONS) {
-    best = Math.max(best, directionPatternScore(board, config, x, y, z, dir, color));
+
+  for (const windowIndex of geometry.windowsByCell[cell]) {
+    let own = 1;
+    let blocked = false;
+    for (const member of geometry.windows[windowIndex].cells) {
+      if (member === cell) continue;
+      const stone = board[member];
+      if (stone === color) own++;
+      else if (stone !== Stone.EMPTY) {
+        blocked = true;
+        break;
+      }
+    }
+    if (!blocked) best = Math.max(best, patternValue(own, config.winLength));
   }
   return best;
 }
